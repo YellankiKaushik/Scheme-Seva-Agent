@@ -1,5 +1,5 @@
-// Mastra-style Report Agent. Delegates to runDiscovery which handles the LLM
-// call, safety validation, and Supabase persistence.
+// Mastra-style Report Agent. Delegates to runDiscovery, which handles the LLM
+// call, safety validation, and optional persistence.
 import { runDiscovery } from "@/lib/schemeseva.functions";
 import type { CitizenProfile } from "@/lib/schemeseva-types";
 

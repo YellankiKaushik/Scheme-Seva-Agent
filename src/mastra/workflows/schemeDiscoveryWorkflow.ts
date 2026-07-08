@@ -36,8 +36,8 @@ export const schemeDiscoveryWorkflow = {
             profile = step1.profile;
             followUp = step1.followUp;
             profileStep = followUp
-                ? fallback("lovable-gemini", "One clarification question required for missing critical fields.")
-                : completed("lovable-gemini", "Natural language profile extracted and Zod-validated.");
+                ? fallback("local-demo", "One clarification question required for missing critical fields.")
+                : completed("openrouter-or-local", "Natural language profile extracted and Zod-validated.");
             if (followUp) return { profile, followUp, report: null, agentSteps: { profileAgent: profileStep } };
         } else {
             throw new Error("schemeDiscoveryWorkflow requires text or profile");

@@ -10,7 +10,7 @@ export interface QdrantSearchInput {
 export const qdrantSearchTool = {
     name: "qdrantSearch",
     description:
-        "Search schemes through Qdrant using 4-5 semantic query angles, with Supabase keyword fallback.",
+        "Search schemes through Qdrant using 4-5 semantic query angles, with local keyword fallback.",
     queryAngles: buildQueryAngles,
     async execute(input: QdrantSearchInput): Promise<RetrievalResult> {
         return searchSchemes(input.allSchemes, input.profile, input.limit ?? 20);
