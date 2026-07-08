@@ -16,10 +16,11 @@ export const Route = createFileRoute("/architecture")({
 const layers = [
     { l: "Frontend", t: "TanStack Start (React 19) + Tailwind v4", p: "Landing, agent runner, results, browse, and alert banner." },
     { l: "Orchestration", t: "Mastra-style pipeline in TypeScript server functions", p: "Chains 5 agents. Each step is a typed server function, testable in isolation." },
-    { l: "LLM reasoning", t: "Lovable AI Gateway (Google Gemini 3 Flash)", p: "Profile extraction, report generation, and safety validation." },
-    { l: "Retrieval", t: "Postgres + keyword/attribute matching (Qdrant-substitute)", p: "28 verified schemes indexed with eligibility rules, keywords, and metadata." },
-    { l: "Memory", t: "Lovable Cloud sessions table", p: "Citizen profile + found schemes persisted by browser-generated session key." },
-    { l: "Safety", t: "AI safety validator (Enkrypt-substitute)", p: "Every citizen-facing report checked for hallucination, bias, and toxicity." },
+    { l: "LLM reasoning", t: "OpenRouter", p: "Profile extraction and report generation, with local grounded fallback in demo mode." },
+    { l: "Embeddings", t: "Google Gemini embeddings", p: "Semantic vectors for Qdrant retrieval when GEMINI_API_KEY is configured." },
+    { l: "Retrieval", t: "Qdrant + local catalog fallback", p: "Verified schemes indexed with eligibility rules, keywords, and metadata." },
+    { l: "Memory", t: "Qdrant citizen_sessions + local session fallback", p: "Citizen profile + found schemes persisted by browser-generated session key." },
+    { l: "Safety", t: "Enkrypt AI + OpenRouter fallback", p: "Every citizen-facing report checked before display." },
     { l: "Autonomous", t: "Vigilance Agent · Simulate button", p: "Scans saved profile against new schemes without being asked." },
 ];
 
@@ -40,9 +41,9 @@ function ArchitecturePage() {
                     Architecture
                 </h1>
                 <p className="mt-4 max-w-3xl text-lg text-muted-foreground">
-                    SchemeSeva is a TypeScript-native civic AI agent built on the mandatory
-                    hackathon stack — Mastra-style orchestration, Qdrant-style semantic retrieval,
-                    and Enkrypt-style safety validation — running on Lovable Cloud and Lovable AI Gateway.
+                    SchemeSeva is a TypeScript-native civic AI agent built on the final
+                    hackathon stack: Mastra adapter orchestration, Qdrant semantic retrieval,
+                    Google embeddings, OpenRouter reasoning, and Enkrypt AI safety validation.
                 </p>
 
                 <section className="mt-12">
@@ -84,7 +85,7 @@ function ArchitecturePage() {
          │                                        │
          ▼                                        ▼
     Session saved                          Personalised report
-     (Lovable Cloud)                     (markdown + confidence)
+ (Qdrant/local memory)                  (markdown + confidence)
 
               ┌──────────────────────────────┐
               │  ⑥ Vigilance Agent (async)  │

@@ -11,7 +11,7 @@ export const Route = createFileRoute("/debug/integrations")({
             {
                 name: "description",
                 content:
-                    "Live status of the mandatory hackathon stack: Mastra, Qdrant, Enkrypt AI, plus Supabase and Lovable AI.",
+                    "Live status of the SchemeSeva stack: Mastra adapter, OpenRouter, Gemini embeddings, Qdrant, Enkrypt AI, Langfuse, Upstash, and optional Supabase fallback.",
             },
         ],
     }),
@@ -47,8 +47,7 @@ function IntegrationsPage() {
                             Integrations status
                         </h1>
                         <p className="mt-2 max-w-2xl text-muted-foreground">
-                            Live check of the mandatory hackathon stack (Mastra · Qdrant · Enkrypt AI)
-                            and the Lovable Cloud fallbacks.
+                            Live check of the independent SchemeSeva stack and demo fallbacks.
                         </p>
                     </div>
                     <button
@@ -165,7 +164,7 @@ function IntegrationsPage() {
                         </Card>
 
                         <Card
-                            title="Supabase (Lovable Cloud)"
+                            title="Supabase (optional fallback)"
                             primary={data.supabase.reachable}
                             badges={[
                                 <Pill
@@ -181,7 +180,7 @@ function IntegrationsPage() {
                             ]}
                         >
                             <p className="text-sm text-muted-foreground">
-                                Powers the 28-scheme catalog, citizen sessions, and vigilance alerts.
+                                Optional fallback for catalog and session persistence. SchemeSeva can run with Qdrant or local demo data when Supabase is missing.
                             </p>
                             {data.supabase.error ? (
                                 <p className="mt-1 text-xs text-amber-700">Error: {data.supabase.error}</p>
@@ -189,19 +188,35 @@ function IntegrationsPage() {
                         </Card>
 
                         <Card
-                            title="Lovable AI Gateway"
-                            primary={data.lovableAi.configured}
+                            title="OpenRouter reasoning"
+                            primary={data.openrouter.configured}
                             badges={[
                                 <Pill
                                     key="k"
-                                    ok={data.lovableAi.configured}
-                                    label={data.lovableAi.configured ? "key present" : "no key"}
+                                    ok={data.openrouter.configured}
+                                    label={data.openrouter.configured ? "configured" : "local demo fallback"}
                                 />,
                                 <Pill key="d" ok={data.demoMode} label={data.demoMode ? "demo mode ON" : "demo mode off"} />,
                             ]}
                         >
                             <p className="text-sm text-muted-foreground">
-                                Gemini 3 Flash for profile extraction and report generation.
+                                Reasoning model: <code>{data.openrouter.model ?? "not set"}</code>. Profile and report agents use local grounded fallbacks when OpenRouter is missing.
+                            </p>
+                        </Card>
+
+                        <Card
+                            title="Gemini embeddings"
+                            primary={data.gemini.embeddingsConfigured}
+                            badges={[
+                                <Pill
+                                    key="g"
+                                    ok={data.gemini.embeddingsConfigured}
+                                    label={data.gemini.embeddingsConfigured ? "configured" : "keyword fallback"}
+                                />,
+                            ]}
+                        >
+                            <p className="text-sm text-muted-foreground">
+                                Provider: <code>{data.gemini.embeddingsProvider}</code>
                             </p>
                         </Card>
                     </div>

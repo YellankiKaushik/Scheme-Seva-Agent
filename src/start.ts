@@ -18,7 +18,22 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
     }
 });
 
+const csrfMiddleware = createMiddleware().server(async ({ next, request }) => {
+    const method = request.method.toUpperCase();
+    if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+        const origin = request.headers.get("origin");
+        if (origin) {
+            const requestUrl = new URL(request.url);
+            const originUrl = new URL(origin);
+            if (originUrl.host !== requestUrl.host) {
+                return new Response("Cross-site request blocked", { status: 403 });
+            }
+        }
+    }
+    return next();
+});
+
 export const startInstance = createStart(() => ({
     functionMiddleware: [attachSupabaseAuth],
-    requestMiddleware: [errorMiddleware],
+    requestMiddleware: [csrfMiddleware, errorMiddleware],
 }));
