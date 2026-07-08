@@ -6,6 +6,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { qdrantConfig, qdrantConfigured } from "./qdrant";
 import { startTrace } from "./observability";
+import { deleteLocalSession } from "./localSessionStore";
 
 const MEMORY_COLLECTION =
     process.env.QDRANT_MEMORY_COLLECTION ?? "schemeseva_memory";
@@ -60,25 +61,34 @@ export const deleteCitizenData = createServerFn({ method: "POST" })
             result.qdrant.reason = "qdrant-not-configured";
         }
 
-        // 2. Supabase: pending alerts + session row
-        const { supabaseAdmin } = await import(
-            "@/integrations/supabase/client.server"
-        );
-        const alertsSpan = trace.span("supabase.alerts.delete");
-        const { count } = await supabaseAdmin
-            .from("alerts")
-            .delete({ count: "exact" })
-            .eq("session_key", data.sessionKey);
-        result.alerts.deleted = count ?? 0;
-        alertsSpan.end({ deleted: result.alerts.deleted });
+        const local = deleteLocalSession(data.sessionKey);
+        result.alerts.deleted = local.alertsDeleted;
+        result.session.deleted = true;
 
-        const sessSpan = trace.span("supabase.sessions.delete");
-        const { error: sessErr } = await supabaseAdmin
-            .from("sessions")
-            .delete()
-            .eq("session_key", data.sessionKey);
-        result.session.deleted = !sessErr;
-        sessSpan.end({ ok: result.session.deleted }, sessErr ?? undefined);
+        if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+            try {
+                const { supabaseAdmin } = await import(
+                    "@/integrations/supabase/client.server"
+                );
+                const alertsSpan = trace.span("supabase.alerts.delete");
+                const { count } = await supabaseAdmin
+                    .from("alerts")
+                    .delete({ count: "exact" })
+                    .eq("session_key", data.sessionKey);
+                result.alerts.deleted += count ?? 0;
+                alertsSpan.end({ deleted: result.alerts.deleted });
+
+                const sessSpan = trace.span("supabase.sessions.delete");
+                const { error: sessErr } = await supabaseAdmin
+                    .from("sessions")
+                    .delete()
+                    .eq("session_key", data.sessionKey);
+                result.session.deleted = !sessErr;
+                sessSpan.end({ ok: result.session.deleted }, sessErr ?? undefined);
+            } catch {
+                result.session.deleted = true;
+            }
+        }
 
         await trace.end(result);
         return result;
