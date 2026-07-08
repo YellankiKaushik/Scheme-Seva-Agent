@@ -2,20 +2,20 @@
 
 SchemeSeva is an independent TypeScript civic AI agent for discovering Indian government schemes a citizen is **likely eligible** for. It uses a five-agent workflow: profile extraction, scheme discovery, deterministic eligibility, grounded report generation, and proactive vigilance alerts.
 
-The app can run locally in demo mode with a built-in verified scheme catalog. External services improve retrieval, safety, observability, and persistence, but they are not required for the basic demo flow.
+The app can run locally in demo mode with a built-in verified fallback catalog. External services improve retrieval, safety, observability, and persistence, but they are not required for the basic demo flow. The submitted MVP target is 25-30 verified schemes seeded into Qdrant; the local fallback catalog currently contains 8 representative schemes so the demo still works without external services.
 
 ## Stack
 
-| Layer | Primary | Fallback |
-| --- | --- | --- |
-| Orchestration | Mastra-style typed adapter in `src/mastra/` | Always active |
-| Reasoning | OpenRouter (`OPENROUTER_API_KEY`) | Local grounded profile/report fallback |
-| Embeddings | Google Gemini (`GEMINI_API_KEY`) | Keyword/attribute retrieval |
-| Retrieval + memory | Qdrant (`QDRANT_URL`, `QDRANT_API_KEY`) | Local static scheme catalog + in-memory session store |
-| Safety | Enkrypt AI (`ENKRYPT_API_KEY`) | OpenRouter validator or passthrough in demo mode |
-| Observability | Langfuse | No-op tracer |
-| Rate limiting | Upstash Redis | Allow-all local fallback |
-| Optional persistence | Supabase | Not required |
+| Layer                | Primary                                     | Fallback                                              |
+| -------------------- | ------------------------------------------- | ----------------------------------------------------- |
+| Orchestration        | Mastra-style typed adapter in `src/mastra/` | Always active                                         |
+| Reasoning            | OpenRouter (`OPENROUTER_API_KEY`)           | Local grounded profile/report fallback                |
+| Embeddings           | Google Gemini (`GEMINI_API_KEY`)            | Keyword/attribute retrieval                           |
+| Retrieval + memory   | Qdrant (`QDRANT_URL`, `QDRANT_API_KEY`)     | Local static scheme catalog + in-memory session store |
+| Safety               | Enkrypt AI (`ENKRYPT_API_KEY`)              | OpenRouter validator or passthrough in demo mode      |
+| Observability        | Langfuse                                    | No-op tracer                                          |
+| Rate limiting        | Upstash Redis                               | Allow-all local fallback                              |
+| Optional persistence | Supabase                                    | Not required                                          |
 
 ## Run Locally
 
@@ -26,15 +26,21 @@ pnpm dev
 
 Copy `.env.example` to `.env` when enabling external providers. For the default local demo, `NEXT_PUBLIC_DEMO_MODE=true` is enough.
 
+For the full judged demo, seed Qdrant with the 25-30 verified scheme dataset before presenting. Without Qdrant, SchemeSeva uses the smaller local fallback catalog.
+
 ## Environment Variables
 
 Primary:
 
 - `OPENROUTER_API_KEY`
 - `OPENROUTER_MODEL`
+- `SCHEMESEVA_SITE_URL`
 - `GEMINI_API_KEY`
 - `QDRANT_URL`
 - `QDRANT_API_KEY`
+- `QDRANT_MEMORY_COLLECTION`
+- `QDRANT_SESSIONS_COLLECTION`
+- `QDRANT_ALERTS_COLLECTION`
 - `ENKRYPT_API_KEY`
 - `ENKRYPT_BASE_URL`
 - `LANGFUSE_PUBLIC_KEY`
@@ -48,7 +54,10 @@ Optional fallback only:
 
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
+- `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
 
 ## Mastra Five-Agent Workflow
 
@@ -77,7 +86,18 @@ Expected debug signals:
 - Langfuse configured/missing
 - Upstash configured/missing
 - Supabase optional fallback configured/missing
+- Memory provider: qdrant / local / optional-supabase / unavailable
 - Demo mode on/off
+
+## Vercel Deployment
+
+This repository includes a minimal `vercel.json` for TanStack Start + Nitro:
+
+- Install command: `pnpm install --frozen-lockfile`
+- Build command: `pnpm build`
+- Nitro preset on Vercel: `NITRO_PRESET=vercel`
+
+Set the same environment variables from `.env.example` in the Vercel dashboard. Supabase variables remain optional fallback only. For full 25-30 scheme coverage, seed Qdrant using the production `QDRANT_URL`, `QDRANT_API_KEY`, and `GEMINI_API_KEY`.
 
 ## Demo Script
 
@@ -103,5 +123,5 @@ pnpm build
 ## Security Notes
 
 - Do not commit `.env` or `.env.local`.
-- Server function CSRF protection is still a TODO for production hardening.
+- Basic same-origin CSRF protection is enabled for non-GET server requests. Production deployments can still add stronger CSRF/session hardening if user accounts or cookies are introduced.
 - SchemeSeva provides discovery guidance, not official eligibility approval.
