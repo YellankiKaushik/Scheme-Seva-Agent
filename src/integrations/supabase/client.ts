@@ -38,8 +38,7 @@ function createSupabaseClient() {
             ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
             ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
         ];
-        const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
-        console.error(`[Supabase] ${message}`);
+        const message = `Optional Supabase fallback is not configured. Missing: ${missing.join(', ')}. Running SchemeSeva without browser Supabase auth.`;
         throw new Error(message);
     }
 
