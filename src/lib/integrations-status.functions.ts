@@ -1,0 +1,97 @@
+import { createServerFn } from "@tanstack/react-start";
+import { qdrantStatus, qdrantConfigured } from "./qdrant";
+import { enkryptStatus, enkryptConfigured } from "./enkrypt";
+import { mastraStatus } from "@/mastra";
+import { langfuseStatus } from "./observability";
+import { upstashStatus } from "./ratelimit";
+import { embeddingsConfigured, embeddingsProvider } from "./embeddings";
+
+export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(
+    async () => {
+        const [qd, en] = await Promise.all([qdrantStatus(), enkryptStatus()]);
+
+        let supabase: { configured: boolean; reachable: boolean; error?: string } = {
+            configured: Boolean(process.env.SUPABASE_URL),
+            reachable: false,
+        };
+        let lastDiscoveryRun: string | null = null;
+        let lastVigilanceRun: string | null = null;
+        try {
+            const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+            const { error } = await supabaseAdmin.from("schemes").select("id").limit(1);
+            supabase.reachable = !error;
+            if (error) supabase.error = error.message;
+            const { data: latestSession } = await supabaseAdmin
+                .from("sessions")
+                .select("updated_at,last_scan_at")
+                .order("updated_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            lastDiscoveryRun = (latestSession?.updated_at as string | undefined) ?? null;
+            const { data: latestAlert } = await supabaseAdmin
+                .from("alerts")
+                .select("created_at")
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            lastVigilanceRun =
+                (latestAlert?.created_at as string | undefined) ??
+                (latestSession?.last_scan_at as string | undefined) ??
+                null;
+        } catch (e) {
+            supabase.error = (e as Error).message;
+        }
+
+        const qdrantPrimary = qdrantConfigured() && qd.reachable === true;
+        const enkryptPrimary = enkryptConfigured() && en.reachable === true;
+
+        return {
+            mastra: mastraStatus(),
+            qdrant: {
+                ...qd,
+                primary: qdrantPrimary,
+                fallback: "Supabase + keyword/attribute scoring",
+            },
+            enkrypt: {
+                ...en,
+                primary: enkryptPrimary,
+                fallback: "Gemini-based safety validator (Lovable AI Gateway)",
+            },
+            supabase,
+            lovableAi: { configured: Boolean(process.env.LOVABLE_API_KEY) },
+            openrouter: {
+                configured: Boolean(process.env.OPENROUTER_API_KEY),
+                model: process.env.OPENROUTER_MODEL ?? null,
+            },
+            gemini: {
+                configured: Boolean(process.env.GEMINI_API_KEY),
+                embeddingsProvider: embeddingsProvider(),
+                embeddingsConfigured: embeddingsConfigured(),
+            },
+            langfuse: langfuseStatus(),
+            upstash: upstashStatus(),
+            demoMode:
+                process.env.NEXT_PUBLIC_DEMO_MODE === "true" ||
+                process.env.VITE_DEMO_MODE === "true",
+            currentRetrievalProvider: qdrantPrimary
+                ? embeddingsConfigured()
+                    ? "qdrant-vector"
+                    : "qdrant-keyword"
+                : "fallback-supabase-keyword",
+            currentSafetyProvider: enkryptPrimary ? "enkrypt" : "fallback-gemini",
+            currentWorkflowMode: mastraStatus().mode,
+            vigilanceAvailable: supabase.reachable,
+            lastSuccessfulDiscoveryRun: lastDiscoveryRun,
+            lastSuccessfulVigilanceRun: lastVigilanceRun,
+            liveChecks: {
+                qdrant: qd.reachable === true ? "live-connected" : qdrantConfigured() ? "configured-unreachable" : "not-configured",
+                enkrypt: en.reachable === true ? "live-connected" : enkryptConfigured() ? "configured-unreachable" : "not-configured",
+                supabase: supabase.reachable ? "live-connected" : supabase.configured ? "configured-unreachable" : "not-configured",
+                gemini: embeddingsConfigured() ? "configured-by-env" : "not-configured",
+                langfuse: langfuseStatus().configured ? "configured-by-env" : "not-configured",
+                upstash: upstashStatus().configured ? "configured-by-env" : "not-configured",
+            },
+            lastCheckedAt: new Date().toISOString(),
+        };
+    },
+);

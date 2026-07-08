@@ -1,0 +1,412 @@
+import { createServerFn } from "@tanstack/react-start";
+import { getRequestIP } from "@tanstack/react-start/server";
+import { generateText, Output, NoObjectGeneratedError } from "ai";
+import { z } from "zod";
+import { createLovableAiGatewayProvider } from "./ai-gateway.server";
+import type {
+    CitizenProfile,
+    Scheme,
+    EligibilityResult,
+    DiscoveryReport,
+} from "./schemeseva-types";
+import { checkEligibility, discoverCandidates } from "./schemeseva-eligibility";
+import { searchSchemes } from "./qdrantSearch";
+import { validateAlert, validateReport } from "./safetyValidator";
+import { rememberSession, rememberAlert } from "./qdrantMemory";
+import { rateLimit } from "./ratelimit";
+import { startTrace } from "./observability";
+import { completed, fallback, type DiscoveryAgentSteps, type VigilanceAgentSteps } from "@/mastra/types";
+
+const MODEL = "google/gemini-3-flash-preview";
+
+function getGateway() {
+    const key = process.env.LOVABLE_API_KEY;
+    if (!key) throw new Error("Missing LOVABLE_API_KEY");
+    return createLovableAiGatewayProvider(key);
+}
+
+async function loadSchemes(ids?: string[]): Promise<Scheme[]> {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    let query = supabaseAdmin.from("schemes").select("*");
+    if (ids && ids.length) query = query.in("id", ids);
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((row) => ({
+        id: row.id as string,
+        schemeName: row.scheme_name as string,
+        ministry: row.ministry as string,
+        benefitType: row.benefit_type as string,
+        benefitAmount: row.benefit_amount as string,
+        description: row.description as string,
+        eligibility: (row.eligibility as Scheme["eligibility"]) ?? {},
+        keywords: (row.keywords as string[]) ?? [],
+        documentsRequired: (row.documents_required as string[]) ?? [],
+        applicationSteps: (row.application_steps as string[]) ?? [],
+        applicationUrl: (row.application_url as string | null) ?? null,
+        applicationMode: row.application_mode as string,
+        sourceUrl: row.source_url as string,
+        lastVerified: row.last_verified as string,
+        stateScope: row.state_scope as string,
+    }));
+}
+
+// ─────────────────────────────────────────────────────────────
+// PROFILE AGENT — extract structured profile from free text
+// ─────────────────────────────────────────────────────────────
+export const extractProfile = createServerFn({ method: "POST" })
+    .inputValidator((input: unknown) =>
+        z
+            .object({ text: z.string().min(3).max(4000) })
+            .parse(input),
+    )
+    .handler(async ({ data }): Promise<{ profile: CitizenProfile; followUp: string | null }> => {
+        const gateway = getGateway();
+
+        const schema = z.object({
+            name: z.string().nullable(),
+            state: z.string().nullable(),
+            district: z.string().nullable(),
+            age: z.number().nullable(),
+            gender: z.enum(["male", "female", "other"]).nullable(),
+            category: z.enum(["general", "sc", "st", "obc", "ebc", "minority"]).nullable(),
+            annualIncome: z.number().nullable(),
+            occupation: z.string().nullable(),
+            landAcres: z.number().nullable(),
+            hasAadhaar: z.boolean().nullable(),
+            hasBankAccount: z.boolean().nullable(),
+            hasBPL: z.boolean().nullable(),
+            isBPL: z.boolean().nullable(),
+            isDisabled: z.boolean().nullable(),
+            disability: z.boolean().nullable(),
+            isWidow: z.boolean().nullable(),
+            isMinority: z.boolean().nullable(),
+            familySize: z.number().nullable(),
+            notes: z.string().nullable(),
+            followUp: z.string().nullable(),
+        });
+
+        try {
+            const { output } = await generateText({
+                model: gateway(MODEL),
+                output: Output.object({ schema }),
+                system:
+                    "CRISPE Profile Agent for SchemeSeva. Capacity: extract structured CitizenProfile JSON for Indian welfare eligibility. " +
+                    "Role: careful civic intake assistant. Insight: hard eligibility depends on stated facts, so never infer income, category, gender, documents, or BPL status. " +
+                    "Statement: fill required fields state, age, gender, category, annualIncome, occupation, hasBPL, hasAadhaar, hasBankAccount only when stated; set unknown values to null. " +
+                    "Personality: plain, respectful, 8th-grade English. Few-shot: '42 year old SC male farmer Telangana income 90000 has Aadhaar bank no BPL' means complete profile and no follow-up. " +
+                    "'I am a farmer' means null for missing facts and one follow-up asking for state, age, gender/category, income, and documents. " +
+                    "If any critical required field is missing, set followUp to exactly one specific clarifying question. Otherwise followUp = null.",
+                prompt: data.text,
+            });
+            const { followUp, ...profile } = output;
+            const normalized = {
+                ...profile,
+                isBPL: profile.isBPL ?? profile.hasBPL,
+                hasBPL: profile.hasBPL ?? profile.isBPL,
+                disability: profile.disability ?? profile.isDisabled,
+                isDisabled: profile.isDisabled ?? profile.disability,
+            } as CitizenProfile;
+            return { profile: normalized, followUp: followUp ?? null };
+        } catch (e) {
+            if (NoObjectGeneratedError.isInstance(e)) {
+                return {
+                    profile: { notes: data.text },
+                    followUp: "I couldn't understand fully — could you share your state, age, occupation and rough yearly income?",
+                };
+            }
+            throw e;
+        }
+    });
+
+// ─────────────────────────────────────────────────────────────
+// FULL DISCOVERY — Discovery → Eligibility → Report → Safety
+// ─────────────────────────────────────────────────────────────
+export const runDiscovery = createServerFn({ method: "POST" })
+    .inputValidator((input: unknown) =>
+        z
+            .object({
+                sessionKey: z.string().min(4),
+                profile: z.record(z.string(), z.any()),
+            })
+            .parse(input),
+    )
+    .handler(async ({ data }): Promise<DiscoveryReport> => {
+        const profile = data.profile as CitizenProfile;
+
+        // Rate limit: 10 discovery requests / minute / IP
+        let ip = "anon";
+        try { ip = getRequestIP({ xForwardedFor: true }) ?? "anon"; } catch { }
+        const rl = await rateLimit(`discover:${ip}`, 10, 60);
+        if (!rl.allowed) {
+            throw new Error("Rate limit exceeded — please try again in a minute.");
+        }
+
+        const trace = startTrace("workflow.schemeDiscovery", { sessionKey: data.sessionKey });
+        const allSchemes = await loadSchemes();
+
+        // Discovery Agent — prefer Qdrant when configured, fall back to keyword scorer
+        const discSpan = trace.span("agent.discovery");
+        const retrieval = await searchSchemes(allSchemes, profile, 20);
+        const candidates = retrieval.schemes;
+        discSpan.end({ source: retrieval.source, count: candidates.length });
+        const discoveryStatus =
+            retrieval.source === "fallback-supabase-keyword"
+                ? fallback(retrieval.source, "Qdrant unavailable; used deterministic Supabase keyword fallback.")
+                : completed(retrieval.source, "Qdrant retrieval path used.");
+
+        // Eligibility Agent — deterministic
+        const eligibilitySpan = trace.span("agent.eligibility");
+        const eligibleResults: EligibilityResult[] = candidates
+            .map((s) => checkEligibility(s, profile))
+            .filter((r) => r.confidence !== "none")
+            .sort((a, b) => {
+                if (a.confidence !== b.confidence) return a.confidence === "high" ? -1 : 1;
+                return 0;
+            });
+        eligibilitySpan.end({ candidates: candidates.length, eligible: eligibleResults.length });
+
+        const eligibleSchemes = eligibleResults
+            .map((r) => candidates.find((c) => c.id === r.schemeId)!)
+            .filter(Boolean);
+
+        // Report Agent
+        let reportMarkdown = "";
+        if (eligibleResults.length === 0) {
+            reportMarkdown =
+                "## No strong matches found\n\nBased on the details shared, we couldn't find schemes you likely qualify for from our current catalog of 28 verified central + Telangana schemes.\n\nPlease share more details about your occupation, income, or state so we can search again.";
+        } else {
+            const reportSpan = trace.span("agent.report");
+            const gateway = getGateway();
+            const schemeContext = eligibleSchemes
+                .map((s, i) => {
+                    const r = eligibleResults[i];
+                    return `#${i + 1} ${s.schemeName} [${r.confidence}]
+Ministry: ${s.ministry}
+Benefit: ${s.benefitAmount}
+Why likely eligible: ${r.reasons.join(" ")}
+Missing docs: ${r.missingDocuments.length ? r.missingDocuments.join(", ") : "None"}
+Application: ${s.applicationUrl ?? s.sourceUrl}
+Source: ${s.sourceUrl}
+Last verified: ${s.lastVerified}
+Steps: ${s.applicationSteps.join(" | ")}
+Documents needed: ${s.documentsRequired.join(", ")}`;
+                })
+                .join("\n\n---\n\n");
+
+            const { text } = await generateText({
+                model: gateway(MODEL),
+                system:
+                    "You are the Report Agent for SchemeSeva. Generate a plain-language markdown report for an Indian citizen about government schemes they may qualify for. " +
+                    "Rules: (1) Always use the phrase 'likely eligible' — never claim guaranteed eligibility. " +
+                    "(2) Use 8th-grade reading level, no bureaucratic jargon. " +
+                    "(3) For each scheme use this exact structure: ### N. <Scheme Name> — <benefit>, then two-sentence 'Why you likely qualify', then a numbered 'Steps to apply' list, then a 'Documents needed' list, then a line 'Source: <url> · Last verified: <date>'. " +
+                    "(4) Never invent details. Only use the data provided. " +
+                    "(5) End with exactly one disclaimer paragraph: 'This is guidance based on the information you shared. Please confirm final eligibility on the official portal or with a local government office.'",
+                prompt: `Citizen profile: ${JSON.stringify(profile)}\n\nSchemes to include, in order:\n\n${schemeContext}\n\nGenerate the report now.`,
+            });
+            reportMarkdown = text;
+            reportSpan.end({ schemes: eligibleResults.length });
+        }
+
+        // Safety Agent — prefers Enkrypt AI; falls back to Gemini validator
+        const sourceContext = JSON.stringify(
+            eligibleSchemes.map((s) => ({
+                id: s.id,
+                name: s.schemeName,
+                benefit: s.benefitAmount,
+                source: s.sourceUrl,
+                verified: s.lastVerified,
+            })),
+        );
+        const safetyReport = await validateReport(reportMarkdown, sourceContext);
+        const safety: DiscoveryReport["safety"] = {
+            status: safetyReport.status,
+            note: `[${safetyReport.provider}] ${safetyReport.note}`,
+            provider: safetyReport.provider,
+        };
+        const agentSteps: DiscoveryAgentSteps = {
+            profileAgent: completed("mastra-adapter", "Profile supplied by workflow or validated before report generation."),
+            discoveryAgent: discoveryStatus,
+            eligibilityAgent: completed("deterministic-rules", `${eligibleResults.length} likely matches after hard-fail exclusions.`),
+            reportAgent: completed("lovable-gemini", eligibleResults.length ? "Plain-language report generated." : "No-match report generated."),
+            safetyValidation:
+                safetyReport.provider === "enkrypt"
+                    ? completed("enkrypt", safetyReport.note)
+                    : fallback(safetyReport.provider, safetyReport.note),
+        };
+
+        // Optional Qdrant semantic memory mirror
+        await rememberSession(
+            data.sessionKey,
+            profile,
+            `Retrieval=${retrieval.source} · Matches=${eligibleResults.length} · Safety=${safetyReport.provider}/${safetyReport.status}`,
+        );
+
+        // Persist session (server-side, service role)
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        await supabaseAdmin
+            .from("sessions")
+            .upsert(
+                {
+                    session_key: data.sessionKey,
+                    profile: profile as never,
+                    found_schemes: eligibleResults as never,
+                    report_markdown: reportMarkdown,
+                    safety_status: safety.status,
+                    last_scan_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                },
+                { onConflict: "session_key" },
+            );
+
+        const result: DiscoveryReport = {
+            sessionKey: data.sessionKey,
+            profile,
+            eligible: eligibleResults,
+            schemes: eligibleSchemes,
+            reportMarkdown,
+            safety,
+            retrievalProvider: retrieval.source,
+            workflowMode: "adapter",
+            agentSteps,
+        };
+        await trace.end({
+            matches: eligibleResults.length,
+            retrieval: retrieval.source,
+            safetyProvider: safetyReport.provider,
+        });
+        return result;
+    });
+
+// ─────────────────────────────────────────────────────────────
+// VIGILANCE AGENT — simulate a new scheme, scan saved session
+// ─────────────────────────────────────────────────────────────
+export const runVigilance = createServerFn({ method: "POST" })
+    .inputValidator((input: unknown) =>
+        z.object({ sessionKey: z.string().min(4) }).parse(input),
+    )
+    .handler(
+        async ({
+            data,
+        }): Promise<{
+            scanned: number;
+            newMatches: number;
+            alerts: Array<{
+                id: string;
+                schemeId: string;
+                schemeName: string;
+                reason: string;
+                urgency: string;
+                validationProvider: string;
+                retrievalProvider: string;
+                memoryProvider: string;
+            }>;
+            workflowMode: "adapter";
+            agentSteps: VigilanceAgentSteps;
+        }> => {
+            // Rate limit: 3 vigilance simulate requests / minute / IP
+            let ip = "anon";
+            try { ip = getRequestIP({ xForwardedFor: true }) ?? "anon"; } catch { }
+            const rl = await rateLimit(`vigilance:${ip}`, 3, 60);
+            if (!rl.allowed) {
+                throw new Error("Rate limit exceeded — please try again in a minute.");
+            }
+            const trace = startTrace("workflow.vigilance", { sessionKey: data.sessionKey });
+            const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+            // Load session
+            const { data: sess } = await supabaseAdmin
+                .from("sessions")
+                .select("profile, found_schemes")
+                .eq("session_key", data.sessionKey)
+                .maybeSingle();
+            if (!sess) {
+                const agentSteps: VigilanceAgentSteps = {
+                    vigilanceAgent: completed("mastra-adapter", "No saved session found."),
+                    discoveryAgent: fallback("none", "No session available to scan."),
+                    eligibilityAgent: fallback("none", "No session available to scan."),
+                    safetyValidation: fallback("none", "No alert generated."),
+                };
+                await trace.end({ scanned: 0 });
+                return { scanned: 0, newMatches: 0, alerts: [], workflowMode: "adapter", agentSteps };
+            }
+
+            const profile = sess.profile as unknown as CitizenProfile;
+            const foundList = (sess.found_schemes as unknown as EligibilityResult[]) ?? [];
+            const alreadyFound = new Set(foundList.map((r) => r.schemeId));
+
+            // Simulate: pick one high-signal scheme the citizen doesn't have yet
+            const all = await loadSchemes();
+            const candidates = discoverCandidates(all, profile, 30).filter(
+                (s) => !alreadyFound.has(s.id),
+            );
+
+            const alerts: Array<{
+                id: string;
+                schemeId: string;
+                schemeName: string;
+                reason: string;
+                urgency: string;
+                validationProvider: string;
+                retrievalProvider: string;
+                memoryProvider: string;
+            }> = [];
+
+            for (const scheme of candidates.slice(0, 5)) {
+                const r = checkEligibility(scheme, profile);
+                if (r.confidence === "high" || r.confidence === "medium") {
+                    const alertReason = r.reasons[0] ?? "Matches your saved profile.";
+                    const safety = await validateAlert(
+                        `${scheme.schemeName}: ${alertReason} Urgency: ${r.confidence === "high" ? "high" : "medium"}.`,
+                    );
+                    if (safety.status !== "safe") continue;
+                    const { data: inserted } = await supabaseAdmin
+                        .from("alerts")
+                        .insert({
+                            session_key: data.sessionKey,
+                            scheme_id: scheme.id,
+                            scheme_name: scheme.schemeName,
+                            reason: alertReason,
+                            urgency: r.confidence === "high" ? "high" : "medium",
+                        })
+                        .select("id")
+                        .single();
+                    if (inserted) {
+                        const alert = {
+                            id: inserted.id as string,
+                            schemeId: scheme.id,
+                            schemeName: scheme.schemeName,
+                            reason: alertReason,
+                            urgency: r.confidence === "high" ? "high" : "medium",
+                            validationProvider: safety.provider,
+                            retrievalProvider: "supabase-session+scheme-catalog",
+                            memoryProvider: "supabase+qdrant-pending_alerts",
+                        };
+                        alerts.push(alert);
+                        await rememberAlert({ ...alert, sessionKey: data.sessionKey });
+                    }
+                    if (alerts.length >= 1) break; // Return one fresh alert per simulate click
+                }
+            }
+
+            await trace.end({ scanned: candidates.length, newMatches: alerts.length });
+            const agentSteps: VigilanceAgentSteps = {
+                vigilanceAgent: completed("mastra-adapter", "Saved session scanned for new matches."),
+                discoveryAgent: completed("supabase-session+scheme-catalog", `${candidates.length} unseen candidates scanned.`),
+                eligibilityAgent: completed("deterministic-rules", `${alerts.length} validated alert candidates emitted.`),
+                safetyValidation:
+                    alerts[0]?.validationProvider === "enkrypt"
+                        ? completed("enkrypt", "Alert validated before display.")
+                        : fallback(alerts[0]?.validationProvider ?? "none", alerts.length ? "Fallback safety validation used." : "No alert generated."),
+            };
+            return { scanned: candidates.length, newMatches: alerts.length, alerts, workflowMode: "adapter", agentSteps };
+        },
+    );
+
+// ─────────────────────────────────────────────────────────────
+// Public reads (no auth needed)
+// ─────────────────────────────────────────────────────────────
+export const listSchemes = createServerFn({ method: "GET" }).handler(async () => {
+    const schemes = await loadSchemes();
+    return { schemes, count: schemes.length };
+});
