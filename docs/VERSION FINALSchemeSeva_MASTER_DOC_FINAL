@@ -429,6 +429,22 @@ flowchart TD
     GE -->|upsert vectors| QS
 
     JSON --> SEED
+
+    subgraph OBS["Observability & Security"]
+        LF[Langfuse — LLM traces per agent]
+        UPR[Upstash Redis — rate limiting]
+        PD[POST /api/privacy/delete]
+    end
+
+    A1 -.->|span| LF
+    A2 -.->|span| LF
+    A3 -.->|span| LF
+    A4 -.->|span| LF
+    A5 -.->|span| LF
+    AD -->|sliding window 10/min| UPR
+    AV -->|sliding window 3/min| UPR
+    PD -->|delete by sessionId| QC
+    PD -->|delete by sessionId filter| QA
 ```
 
 ### 7.3 Component Breakdown
@@ -1322,6 +1338,8 @@ For the 8-day sprint, UI testing is manual. Follow this checklist on Day 7:
 | Incomplete profile | "I am a farmer" | Follow-up question — no crash |
 | Vigilance | POST /api/vigilance/run | alerts[] returned (not undefined) |
 | Scheme search | GET /api/schemes?q=farmer | results returned |
+| Rate limiting | POST /api/discover × 11 rapid calls | 11th call returns HTTP 429 with error message |
+| Privacy delete | DELETE /api/privacy/delete with valid sessionId | HTTP 200; Qdrant citizen_sessions no longer has that ID |
 
 **Day 5 mandatory checks:**
 - [ ] npm run seed completes; Qdrant dashboard shows 25+ points
@@ -1571,9 +1589,11 @@ schemeseva/
 │   │   ├── page.tsx                      # Main page state machine
 │   │   ├── globals.css                   # Tailwind directives
 │   │   └── api/
-│   │       ├── discover/route.ts         # POST: 5-agent pipeline + Enkrypt
+│   │       ├── discover/route.ts         # POST: 5-agent pipeline + Enkrypt + Langfuse trace
 │   │       ├── schemes/route.ts          # GET: browse/search/retrieve
-│   │       └── vigilance/run/route.ts    # POST: Vigilance Agent trigger
+│   │       ├── vigilance/run/route.ts    # POST: Vigilance Agent trigger
+│   │       └── privacy/
+│   │           └── delete/route.ts       # DELETE: GDPR/DPDP right-to-erasure (NEW — §8.6)
 │   ├── components/
 │   │   ├── ProfileForm.tsx               # 4-step stepper + pre-fill button
 │   │   ├── SchemeCard.tsx                # Scheme with confidence badge
@@ -1597,13 +1617,15 @@ schemeseva/
 │   │       ├── fetchSchemeDetails.ts     # Qdrant retrieve by ID
 │   │       └── enkryptValidator.ts       # Enkrypt AI tool wrapper
 │   ├── lib/
-│   │   ├── models.ts                     # OpenRouter config
+│   │   ├── models.ts                     # OpenRouter config + deterministicModel + generativeModel
 │   │   ├── qdrant.ts                     # Client + types + collection creators
 │   │   ├── embeddings.ts                 # Google embedding helper
 │   │   ├── enkrypt.ts                    # Enkrypt client + validateSchemeReport
 │   │   ├── regenerateReport.ts           # Retry helper for flagged outputs
 │   │   ├── session.ts                    # getOrCreateSessionId + clearSession
-│   │   └── api.ts                        # Frontend fetch helpers
+│   │   ├── api.ts                        # Frontend fetch helpers
+│   │   ├── observability.ts              # Langfuse client + createTrace (NEW — §8.11)
+│   │   └── ratelimit.ts                  # Upstash Redis sliding-window limits (NEW — §8.6)
 │   └── data/
 │       ├── seed.ts                       # Qdrant seeding script
 │       └── schemes/
@@ -1637,6 +1659,9 @@ schemeseva/
 | M9 — Workflows | schemeDiscovery.ts, vigilanceCheck.ts | Chains all agents via Mastra | Full pipeline runs end to end |
 | M10 — Frontend | All components + page.tsx | Complete UI demo flow | Form → loading → report → simulate → alert all work |
 | M11 — Deployment | vercel.json + Vercel dashboard | Live URL + Cron working | Pipeline under 30s on Vercel |
+| M12 — LLM Observability | src/lib/observability.ts; instrument /api/discover | Langfuse traces every agent step | cloud.langfuse.com shows 5 named spans after test POST |
+| M13 — Rate Limiting | src/lib/ratelimit.ts; middleware in /api/discover + /api/vigilance/run | Upstash Redis limits abuse | 11th rapid POST returns HTTP 429 |
+| M14 — Privacy Delete | src/app/api/privacy/delete/route.ts; "Delete my data" link in footer | GDPR/DPDP right-to-erasure | DELETE removes session from Qdrant; localStorage cleared |
 
 ### 9.3 Day-by-Day Execution Plan
 
@@ -1646,8 +1671,13 @@ schemeseva/
 - [ ] CHECK openrouter.ai/models — confirm `openrouter/free` auto-router active
 - [ ] CHECK ai.google.dev/gemini-api/docs/embeddings — confirm `gemini-embedding-001`
 - [ ] Run `npx create-next-app@latest schemeseva --typescript --tailwind --app`
-- [ ] Install all dependencies
-- [ ] Set up .env with all 4 API keys
+- [ ] Install all dependencies (including new packages from feedback):
+  ```bash
+  npm install @mastra/core @openrouter/ai-sdk-provider @google/generative-ai \
+    @qdrant/js-client-rest zod langfuse @upstash/ratelimit @upstash/redis
+  npm install -D ts-node vitest
+  ```
+- [ ] Set up .env with ALL 6 API key groups: OPENROUTER_, GEMINI_, QDRANT_, ENKRYPT_, LANGFUSE_, UPSTASH_
 - [ ] Write qdrant.ts (client + types + createCollectionIfNotExists)
 - [ ] Write embeddings.ts (Google embedding helper)
 - [ ] Write central-schemes.json + telangana-schemes.json (25–30 schemes total)
@@ -1917,8 +1947,11 @@ schemeseva/
 4. Report appears. Point to Enkrypt badge: "Every claim passed Enkrypt AI's hallucination and bias check before you saw it."
 5. Point to SchemeCard: "High confidence. Rythu Bandhu. ₹10,000 per acre per year. Exact application steps. Verified source. Last verified date shown."
 
-**1:45–2:15 — Architecture (30 seconds)**
+**1:45–2:15 — Architecture + Observability (30 seconds)**
 "Five agents orchestrated by Mastra. Two Qdrant collections — scheme semantic search and citizen memory. Every output safety-checked by Enkrypt AI. TypeScript end to end. No Python."
+[Switch to Langfuse dashboard tab]
+"And here — every single agent step traced in real time. Profile Agent, Discovery Agent, Eligibility Agent, Report Agent, Enkrypt validation. Token usage, latency, cost — all visible. This is production-grade LLM observability."
+[Switch back to SchemeSeva]"
 
 **2:15–3:15 — Vigilance Agent (the winning moment)**
 "But here's what makes SchemeSeva an agent, not a chatbot." [pause]
@@ -2006,10 +2039,11 @@ Callout 3 — Vigilance Agent: "Runs autonomously on a schedule — this is the 
 
 **Slide 4 — Demo**
 [Live demo or screenshot sequence]
-Screenshot 1: ProfileForm with Ramu Naidu profile
-Screenshot 2: LoadingState with agent step labels
+Screenshot 1: ProfileForm with Ramu Naidu profile pre-filled
+Screenshot 2: LoadingState with 5 sequential agent step labels
 Screenshot 3: SchemeReport with Enkrypt badge + confidence badges
-Screenshot 4: AlertBanner appearing after Vigilance simulate
+Screenshot 4: Langfuse dashboard (second screen) showing live agent traces
+Screenshot 5: AlertBanner appearing after Vigilance Agent simulate
 
 **Slide 5 — Why SchemeSeva Wins Every Criterion**
 
@@ -2065,6 +2099,7 @@ Headline: Real problem. Real data. Real people.
 | Feature | Priority | Complexity | When |
 |---|---|---|---|
 | Full national scheme coverage (1,000+ across all states) | High | Medium — architecture unchanged; only data | Month 1–3 |
+| **Decouple Vigilance Agent from Next.js monolith** | High | Medium — move to independent serverless function triggered via RabbitMQ or AWS EventBridge | Month 1–2 (judges flagged this as critical) |
 | Hindi, Telugu, Kannada support | High | Medium — translate scheme descriptions; multilingual prompts | Month 2–4 |
 | WhatsApp delivery for Vigilance alerts | High | Low — WhatsApp Business API + phone number capture | Month 1–2 |
 | Application deadline tracker | Medium | Low — add deadline field to SchemeDocument | Month 1 |
@@ -2134,8 +2169,8 @@ I am building SchemeSeva — a TypeScript-native AI agent using Next.js 14 App R
 Generate these config files with complete content:
 
 1. package.json
-   - Dependencies: @mastra/core, @openrouter/ai-sdk-provider, @google/generative-ai, @qdrant/js-client-rest, zod, next@14.2.0, react@^18.3.0, react-dom@^18.3.0
-   - DevDeps: typescript@^5.4.0, @types/node, @types/react, @types/react-dom, tailwindcss@^3.4.0, autoprefixer, postcss, ts-node@^10.9.2
+   - Dependencies: @mastra/core, @openrouter/ai-sdk-provider, @google/generative-ai, @qdrant/js-client-rest, zod, next@14.2.0, react@^18.3.0, react-dom@^18.3.0, langfuse, @upstash/ratelimit, @upstash/redis
+   - DevDeps: typescript@^5.4.0, @types/node, @types/react, @types/react-dom, tailwindcss@^3.4.0, autoprefixer, postcss, ts-node@^10.9.2, vitest
    - Scripts: dev, build, start, seed ("ts-node --project tsconfig.seed.json src/data/seed.ts")
 
 2. tsconfig.json — Next.js App Router (target ES2020, module esnext, moduleResolution bundler, jsx preserve, incremental true, strict true, paths @/* → ./src/*)
@@ -2372,17 +2407,20 @@ export const reasoningModel = openrouter(process.env.OPENROUTER_MODEL || 'openro
 
 src/mastra/agents/profileAgent.ts:
 - Use verified Mastra Agent constructor from docs
-- model: reasoningModel
+- model: generativeModel (temperature:0.3 — needs creativity for extraction)
+- System prompt MUST follow CRISPE framework with 3 few-shot examples (see Section 8.7 for full prompts)
 - instructions: "Extract CitizenProfile JSON from user description. Required: state, age, gender, category, annualIncome, occupation. If any required field missing, ask ONE specific follow-up question and wait. Never assume income or category. Respond ONLY with valid JSON when all required fields present."
 - tools: { validateProfile: { description: 'Validate completeness', parameters: CitizenProfile Zod schema, execute: returns {valid, missing[]} } }
 
 src/mastra/agents/discoveryAgent.ts:
-- model: reasoningModel
+- model: generativeModel (temperature:0.3 — query generation benefits from variation)
+- System prompt MUST include CRISPE framework + few-shot query examples (see Section 8.7)
 - instructions: "Generate 4-5 semantic queries from profile. Call searchSchemes tool for each angle (occupation, income, category, state, gender). Deduplicate. Return JSON array top 20 {id, score, schemeName}."
 - tools: { searchSchemes: { description: 'Semantic scheme search', parameters: z.object({query:z.string(), state:z.string().optional(), limit:z.number().default(10)}), execute: embedText(query) → qdrant.search → return results } }
 
 src/mastra/agents/eligibilityAgent.ts:
-- model: reasoningModel
+- model: deterministicModel (temperature:0 — eligibility decisions must be fully deterministic)
+- System prompt MUST include CRISPE framework + few-shot eligibility examples (see Section 8.7)
 - instructions: "For each candidate, fetch details then run eligibilityChecker. Return JSON array eligible only: {schemeId, schemeName, confidence, reasons[], missingDocuments[], benefitAmount, sourceUrl, lastVerified}. Exclude hard-failed schemes entirely."
 - tools: { fetchSchemeDetails: { qdrant.retrieve by ID }, eligibilityChecker: { full rule-based logic all criteria } }
 
@@ -2391,12 +2429,14 @@ Check in order: minAge (profile.age >= e.minAge), maxAge (profile.age <= e.maxAg
 Any hard criteria failure → eligible=false; confidence='none'. All hard pass + no missing docs → confidence='high'. All hard pass + missing docs → confidence='medium'.
 
 src/mastra/agents/reportAgent.ts:
-- model: reasoningModel
+- model: generativeModel (temperature:0.3 — report writing needs natural language quality)
+- System prompt MUST include CRISPE framework + few-shot report output example (see Section 8.7)
 - instructions: "Generate plain-language markdown report. STRICT RULES: (1) Always say 'likely eligible' or 'may qualify' — never 'eligible' alone. (2) Cite sourceUrl and lastVerified for every scheme section. (3) Sort schemes by benefit value (highest first). (4) End with ONE disclaimer. (5) NEVER invent any data not present in the input. (6) 8th-grade reading level."
 - No tools needed
 
 src/mastra/agents/vigilanceAgent.ts:
-- model: reasoningModel
+- model: deterministicModel (temperature:0 — alert decisions must be conservative and deterministic)
+- System prompt MUST include CRISPE framework + few-shot alert/no-alert examples (see Section 8.7)
 - instructions: "Autonomous scan. Fetch all citizen_sessions. Fetch schemes with lastUpdated > last scan timestamp. For each saved profile × each new scheme: run mini Discovery + Eligibility. Return alerts[] for confidence >= 0.8: {sessionId, schemeId, schemeName, reason, urgency}."
 - tools: { listProfilesAndNewSchemes: { scrolls citizen_sessions; scrolls schemes with lastUpdated filter } }
 
@@ -2410,6 +2450,19 @@ src/mastra/workflows/vigilanceCheck.ts:
 
 src/mastra/index.ts:
 - Create Mastra instance; register all 5 agents + 2 workflows; export as 'mastra'
+
+src/lib/observability.ts:
+- Import Langfuse from 'langfuse'
+- Create langfuse client with LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST from env
+- Export createTrace(name: string, sessionId: string): returns langfuse.trace object
+- Export langfuse instance for flushAsync() call at end of each API route
+
+src/lib/ratelimit.ts:
+- Import Ratelimit from '@upstash/ratelimit' and Redis from '@upstash/redis'
+- Export discoverRatelimit = Ratelimit.slidingWindow(10, '1 m') — 10 req/min for /api/discover
+- Export vigilanceRatelimit = Ratelimit.slidingWindow(3, '1 m') — 3 req/min for /api/vigilance/run
+- Add rate limit check at top of both API routes before any agent calls
+- Return HTTP 429 with { error: 'Too many requests. Please wait a moment.' } on limit exceeded
 ```
 
 ### 15.8 Testing Prompt
