@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestIP } from "@tanstack/react-start/server";
 import { generateText, Output, NoObjectGeneratedError } from "ai";
 import { z } from "zod";
-import { createLovableAiGatewayProvider } from "./ai-gateway.server";
+import { createOpenRouterProvider } from "./ai-gateway.server";
 import type {
     CitizenProfile,
     Scheme,
@@ -16,38 +16,172 @@ import { rememberSession, rememberAlert } from "./qdrantMemory";
 import { rateLimit } from "./ratelimit";
 import { startTrace } from "./observability";
 import { completed, fallback, type DiscoveryAgentSteps, type VigilanceAgentSteps } from "@/mastra/types";
+import { localSchemes } from "./localSchemes";
+import { getLocalSession, saveLocalAlert, saveLocalSession } from "./localSessionStore";
+import { qdrantConfig, qdrantConfigured } from "./qdrant";
 
-const MODEL = "google/gemini-3-flash-preview";
+const MODEL = process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-exp:free";
 
 function getGateway() {
-    const key = process.env.LOVABLE_API_KEY;
-    if (!key) throw new Error("Missing LOVABLE_API_KEY");
-    return createLovableAiGatewayProvider(key);
+    const key = process.env.OPENROUTER_API_KEY;
+    if (!key) return null;
+    return createOpenRouterProvider(key);
 }
 
-async function loadSchemes(ids?: string[]): Promise<Scheme[]> {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    let query = supabaseAdmin.from("schemes").select("*");
-    if (ids && ids.length) query = query.in("id", ids);
-    const { data, error } = await query;
-    if (error) throw new Error(error.message);
-    return (data ?? []).map((row) => ({
+function supabaseServerConfigured() {
+    return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function mapSchemeRow(row: Record<string, unknown>): Scheme {
+    return {
         id: row.id as string,
-        schemeName: row.scheme_name as string,
+        schemeName: (row.scheme_name ?? row.schemeName) as string,
         ministry: row.ministry as string,
-        benefitType: row.benefit_type as string,
-        benefitAmount: row.benefit_amount as string,
+        benefitType: (row.benefit_type ?? row.benefitType) as string,
+        benefitAmount: (row.benefit_amount ?? row.benefitAmount) as string,
         description: row.description as string,
         eligibility: (row.eligibility as Scheme["eligibility"]) ?? {},
         keywords: (row.keywords as string[]) ?? [],
-        documentsRequired: (row.documents_required as string[]) ?? [],
-        applicationSteps: (row.application_steps as string[]) ?? [],
-        applicationUrl: (row.application_url as string | null) ?? null,
-        applicationMode: row.application_mode as string,
-        sourceUrl: row.source_url as string,
-        lastVerified: row.last_verified as string,
-        stateScope: row.state_scope as string,
-    }));
+        documentsRequired: ((row.documents_required ?? row.documentsRequired) as string[]) ?? [],
+        applicationSteps: ((row.application_steps ?? row.applicationSteps) as string[]) ?? [],
+        applicationUrl: ((row.application_url ?? row.applicationUrl) as string | null) ?? null,
+        applicationMode: (row.application_mode ?? row.applicationMode ?? "both") as string,
+        sourceUrl: (row.source_url ?? row.sourceUrl) as string,
+        lastVerified: (row.last_verified ?? row.lastVerified) as string,
+        stateScope: (row.state_scope ?? row.stateScope) as string,
+    };
+}
+
+async function loadSchemesFromQdrant(): Promise<Scheme[] | null> {
+    if (!qdrantConfigured()) return null;
+    const cfg = qdrantConfig();
+    try {
+        const res = await fetch(`${cfg.url!.replace(/\/$/, "")}/collections/${cfg.collection}/points/scroll`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "api-key": cfg.apiKey! },
+            body: JSON.stringify({ limit: 100, with_payload: true }),
+        });
+        if (!res.ok) return null;
+        const json = (await res.json()) as { result?: { points?: Array<{ payload?: Record<string, unknown> }> } };
+        const schemes = (json.result?.points ?? [])
+            .map((point) => point.payload)
+            .filter(Boolean)
+            .map((payload) => mapSchemeRow({ ...payload!, id: payload!.scheme_id ?? payload!.id }));
+        return schemes.length ? schemes : null;
+    } catch {
+        return null;
+    }
+}
+
+async function loadSchemes(ids?: string[]): Promise<Scheme[]> {
+    const qdrantSchemes = await loadSchemesFromQdrant();
+    if (qdrantSchemes?.length) {
+        return ids?.length ? qdrantSchemes.filter((scheme) => ids.includes(scheme.id)) : qdrantSchemes;
+    }
+
+    if (supabaseServerConfigured()) {
+        try {
+            const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+            let query = supabaseAdmin.from("schemes").select("*");
+            if (ids && ids.length) query = query.in("id", ids);
+            const { data, error } = await query;
+            if (!error && data?.length) return (data ?? []).map((row) => mapSchemeRow(row));
+        } catch {
+            // Continue to local catalog.
+        }
+    }
+
+    return ids?.length ? localSchemes.filter((scheme) => ids.includes(scheme.id)) : localSchemes;
+}
+
+function extractProfileLocally(text: string): { profile: CitizenProfile; followUp: string | null } {
+    const lower = text.toLowerCase();
+    const age = Number(lower.match(/\b(\d{2})\s*(?:year|yr|y\/o|old)/)?.[1] ?? lower.match(/\b(\d{2})\b/)?.[1] ?? NaN);
+    const incomeMatch = lower.match(/(?:income|earn|earning|family income)[^\d]*(\d+(?:\.\d+)?)\s*(lakh|lac|k)?/);
+    const annualIncome = incomeMatch
+        ? Math.round(Number(incomeMatch[1]) * (incomeMatch[2] ? 100000 : 1))
+        : null;
+    const state = lower.includes("telangana") ? "telangana" : lower.includes("andhra") ? "andhra pradesh" : null;
+    const gender = lower.includes("female") || lower.includes("woman") || lower.includes("widow")
+        ? "female"
+        : lower.includes("male") || lower.includes("man")
+            ? "male"
+            : null;
+    const category = lower.includes("sc") ? "sc" : lower.includes("st") ? "st" : lower.includes("obc") ? "obc" : lower.includes("minority") ? "minority" : lower.includes("general") ? "general" : null;
+    const occupation = lower.includes("farmer")
+        ? "farmer"
+        : lower.includes("student")
+            ? "student"
+            : lower.includes("tailor")
+                ? "tailoring"
+                : lower.includes("business") || lower.includes("tiffin") || lower.includes("shop")
+                    ? "small business"
+                    : lower.includes("vendor")
+                        ? "street vendor"
+                        : null;
+    const landMatch = lower.match(/(\d+(?:\.\d+)?)\s*acre/);
+    const profile: CitizenProfile = {
+        state,
+        age: Number.isFinite(age) ? age : null,
+        gender,
+        category,
+        annualIncome,
+        occupation,
+        landAcres: landMatch ? Number(landMatch[1]) : null,
+        hasAadhaar: lower.includes("aadhaar") ? !lower.includes("no aadhaar") : null,
+        hasBankAccount: lower.includes("bank") ? !(lower.includes("no bank") || lower.includes("without bank")) : null,
+        hasBPL: lower.includes("bpl") ? !(lower.includes("no bpl") || lower.includes("not bpl")) : null,
+        isBPL: lower.includes("bpl") ? !(lower.includes("no bpl") || lower.includes("not bpl")) : null,
+        isDisabled: lower.includes("disabled") || lower.includes("disability") ? true : null,
+        disability: lower.includes("disabled") || lower.includes("disability") ? true : null,
+        isWidow: lower.includes("widow"),
+        isMinority: lower.includes("minority"),
+        notes: text,
+    };
+    const missing = [
+        !profile.state ? "state" : null,
+        !profile.age ? "age" : null,
+        !profile.gender ? "gender" : null,
+        !profile.category ? "category" : null,
+        profile.annualIncome == null ? "annual income" : null,
+        !profile.occupation ? "occupation" : null,
+        profile.hasAadhaar == null ? "Aadhaar status" : null,
+        profile.hasBankAccount == null ? "bank account status" : null,
+        profile.hasBPL == null ? "BPL status" : null,
+    ].filter(Boolean);
+    return {
+        profile,
+        followUp: missing.length
+            ? `Please share these details in one reply: ${missing.join(", ")}.`
+            : null,
+    };
+}
+
+function generateLocalReport(profile: CitizenProfile, schemes: Scheme[], eligibleResults: EligibilityResult[]) {
+    if (eligibleResults.length === 0) {
+        return "## No strong matches found\n\nBased on the details shared, we could not find schemes you are likely eligible for from the current verified catalog.\n\nThis is guidance based on the information you shared. Please confirm final eligibility on the official portal or with a local government office.";
+    }
+    const sections = eligibleResults.map((result, index) => {
+        const scheme = schemes.find((s) => s.id === result.schemeId);
+        const steps = (scheme?.applicationSteps ?? []).map((step, i) => `${i + 1}. ${step}`).join("\n");
+        const docs = result.missingDocuments.length
+            ? result.missingDocuments.map((doc) => `- ${doc}`).join("\n")
+            : (scheme?.documentsRequired ?? []).map((doc) => `- ${doc}`).join("\n");
+        return `### ${index + 1}. ${result.schemeName} - ${result.benefitAmount}
+
+Why you likely qualify: ${result.reasons.join(" ")}
+
+Steps to apply:
+${steps || "1. Check the official source link and follow the latest instructions."}
+
+Documents needed:
+${docs || "- Check the official source for the latest document list."}
+
+Application: ${scheme?.applicationUrl ?? result.sourceUrl}
+Source: ${result.sourceUrl} · Last verified: ${result.lastVerified}
+Confidence: ${result.confidence}`;
+    });
+    return `## Schemes you are likely eligible for\n\n${sections.join("\n\n")}\n\nThis is guidance based on the information you shared. Please confirm final eligibility on the official portal or with a local government office.`;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -61,6 +195,7 @@ export const extractProfile = createServerFn({ method: "POST" })
     )
     .handler(async ({ data }): Promise<{ profile: CitizenProfile; followUp: string | null }> => {
         const gateway = getGateway();
+        if (!gateway) return extractProfileLocally(data.text);
 
         const schema = z.object({
             name: z.string().nullable(),
@@ -150,8 +285,8 @@ export const runDiscovery = createServerFn({ method: "POST" })
         const candidates = retrieval.schemes;
         discSpan.end({ source: retrieval.source, count: candidates.length });
         const discoveryStatus =
-            retrieval.source === "fallback-supabase-keyword"
-                ? fallback(retrieval.source, "Qdrant unavailable; used deterministic Supabase keyword fallback.")
+            retrieval.source === "fallback-local-keyword"
+                ? fallback(retrieval.source, "Qdrant unavailable; used deterministic local catalog keyword fallback.")
                 : completed(retrieval.source, "Qdrant retrieval path used.");
 
         // Eligibility Agent — deterministic
@@ -177,6 +312,10 @@ export const runDiscovery = createServerFn({ method: "POST" })
         } else {
             const reportSpan = trace.span("agent.report");
             const gateway = getGateway();
+            if (!gateway) {
+                reportMarkdown = generateLocalReport(profile, eligibleSchemes, eligibleResults);
+                reportSpan.end({ schemes: eligibleResults.length, provider: "local-demo" });
+            } else {
             const schemeContext = eligibleSchemes
                 .map((s, i) => {
                     const r = eligibleResults[i];
@@ -206,6 +345,7 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
             });
             reportMarkdown = text;
             reportSpan.end({ schemes: eligibleResults.length });
+            }
         }
 
         // Safety Agent — prefers Enkrypt AI; falls back to Gemini validator
@@ -228,7 +368,7 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
             profileAgent: completed("mastra-adapter", "Profile supplied by workflow or validated before report generation."),
             discoveryAgent: discoveryStatus,
             eligibilityAgent: completed("deterministic-rules", `${eligibleResults.length} likely matches after hard-fail exclusions.`),
-            reportAgent: completed("lovable-gemini", eligibleResults.length ? "Plain-language report generated." : "No-match report generated."),
+            reportAgent: completed(getGateway() ? "openrouter" : "local-demo", eligibleResults.length ? "Plain-language report generated." : "No-match report generated."),
             safetyValidation:
                 safetyReport.provider === "enkrypt"
                     ? completed("enkrypt", safetyReport.note)
@@ -242,22 +382,36 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
             `Retrieval=${retrieval.source} · Matches=${eligibleResults.length} · Safety=${safetyReport.provider}/${safetyReport.status}`,
         );
 
-        // Persist session (server-side, service role)
-        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        await supabaseAdmin
-            .from("sessions")
-            .upsert(
-                {
-                    session_key: data.sessionKey,
-                    profile: profile as never,
-                    found_schemes: eligibleResults as never,
-                    report_markdown: reportMarkdown,
-                    safety_status: safety.status,
-                    last_scan_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                },
-                { onConflict: "session_key" },
-            );
+        saveLocalSession({
+            sessionKey: data.sessionKey,
+            profile,
+            foundSchemes: eligibleResults,
+            reportMarkdown,
+            safetyStatus: safety.status,
+            lastScanAt: new Date().toISOString(),
+        });
+
+        if (supabaseServerConfigured()) {
+            try {
+                const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+                await supabaseAdmin
+                    .from("sessions")
+                    .upsert(
+                        {
+                            session_key: data.sessionKey,
+                            profile: profile as never,
+                            found_schemes: eligibleResults as never,
+                            report_markdown: reportMarkdown,
+                            safety_status: safety.status,
+                            last_scan_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
+                        },
+                        { onConflict: "session_key" },
+                    );
+            } catch {
+                // Optional fallback store unavailable; local/Qdrant memory already captured the session.
+            }
+        }
 
         const result: DiscoveryReport = {
             sessionKey: data.sessionKey,
@@ -312,14 +466,31 @@ export const runVigilance = createServerFn({ method: "POST" })
                 throw new Error("Rate limit exceeded — please try again in a minute.");
             }
             const trace = startTrace("workflow.vigilance", { sessionKey: data.sessionKey });
-            const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
             // Load session
-            const { data: sess } = await supabaseAdmin
-                .from("sessions")
-                .select("profile, found_schemes")
-                .eq("session_key", data.sessionKey)
-                .maybeSingle();
+            let sess: { profile: CitizenProfile; found_schemes: EligibilityResult[] } | null = null;
+            if (supabaseServerConfigured()) {
+                try {
+                    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+                    const { data: supabaseSession } = await supabaseAdmin
+                        .from("sessions")
+                        .select("profile, found_schemes")
+                        .eq("session_key", data.sessionKey)
+                        .maybeSingle();
+                    if (supabaseSession) {
+                        sess = {
+                            profile: supabaseSession.profile as unknown as CitizenProfile,
+                            found_schemes: (supabaseSession.found_schemes as unknown as EligibilityResult[]) ?? [],
+                        };
+                    }
+                } catch {
+                    sess = null;
+                }
+            }
+            if (!sess) {
+                const local = getLocalSession(data.sessionKey);
+                if (local) sess = { profile: local.profile, found_schemes: local.foundSchemes };
+            }
             if (!sess) {
                 const agentSteps: VigilanceAgentSteps = {
                     vigilanceAgent: completed("mastra-adapter", "No saved session found."),
@@ -360,31 +531,43 @@ export const runVigilance = createServerFn({ method: "POST" })
                         `${scheme.schemeName}: ${alertReason} Urgency: ${r.confidence === "high" ? "high" : "medium"}.`,
                     );
                     if (safety.status !== "safe") continue;
-                    const { data: inserted } = await supabaseAdmin
-                        .from("alerts")
-                        .insert({
-                            session_key: data.sessionKey,
-                            scheme_id: scheme.id,
-                            scheme_name: scheme.schemeName,
-                            reason: alertReason,
-                            urgency: r.confidence === "high" ? "high" : "medium",
-                        })
-                        .select("id")
-                        .single();
-                    if (inserted) {
-                        const alert = {
-                            id: inserted.id as string,
-                            schemeId: scheme.id,
-                            schemeName: scheme.schemeName,
-                            reason: alertReason,
-                            urgency: r.confidence === "high" ? "high" : "medium",
-                            validationProvider: safety.provider,
-                            retrievalProvider: "supabase-session+scheme-catalog",
-                            memoryProvider: "supabase+qdrant-pending_alerts",
-                        };
-                        alerts.push(alert);
-                        await rememberAlert({ ...alert, sessionKey: data.sessionKey });
+                    let alertId = `local-${Date.now()}`;
+                    let memoryProvider = "local+qdrant-pending_alerts";
+                    if (supabaseServerConfigured()) {
+                        try {
+                            const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+                            const { data: inserted } = await supabaseAdmin
+                                .from("alerts")
+                                .insert({
+                                    session_key: data.sessionKey,
+                                    scheme_id: scheme.id,
+                                    scheme_name: scheme.schemeName,
+                                    reason: alertReason,
+                                    urgency: r.confidence === "high" ? "high" : "medium",
+                                })
+                                .select("id")
+                                .single();
+                            if (inserted?.id) {
+                                alertId = inserted.id as string;
+                                memoryProvider = "supabase+qdrant-pending_alerts";
+                            }
+                        } catch {
+                            memoryProvider = "local+qdrant-pending_alerts";
+                        }
                     }
+                    const alert = {
+                        id: alertId,
+                        schemeId: scheme.id,
+                        schemeName: scheme.schemeName,
+                        reason: alertReason,
+                        urgency: r.confidence === "high" ? "high" : "medium",
+                        validationProvider: safety.provider,
+                        retrievalProvider: "saved-session+scheme-catalog",
+                        memoryProvider,
+                    };
+                    alerts.push(alert);
+                    saveLocalAlert({ ...alert, sessionKey: data.sessionKey });
+                    await rememberAlert({ ...alert, sessionKey: data.sessionKey });
                     if (alerts.length >= 1) break; // Return one fresh alert per simulate click
                 }
             }
@@ -392,7 +575,7 @@ export const runVigilance = createServerFn({ method: "POST" })
             await trace.end({ scanned: candidates.length, newMatches: alerts.length });
             const agentSteps: VigilanceAgentSteps = {
                 vigilanceAgent: completed("mastra-adapter", "Saved session scanned for new matches."),
-                discoveryAgent: completed("supabase-session+scheme-catalog", `${candidates.length} unseen candidates scanned.`),
+                discoveryAgent: completed("saved-session+scheme-catalog", `${candidates.length} unseen candidates scanned.`),
                 eligibilityAgent: completed("deterministic-rules", `${alerts.length} validated alert candidates emitted.`),
                 safetyValidation:
                     alerts[0]?.validationProvider === "enkrypt"

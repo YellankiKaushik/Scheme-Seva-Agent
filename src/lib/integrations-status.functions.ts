@@ -5,6 +5,7 @@ import { mastraStatus } from "@/mastra";
 import { langfuseStatus } from "./observability";
 import { upstashStatus } from "./ratelimit";
 import { embeddingsConfigured, embeddingsProvider } from "./embeddings";
+import { latestLocalDiscoveryRun, latestLocalVigilanceRun } from "./localSessionStore";
 
 export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(
     async () => {
@@ -16,7 +17,7 @@ export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(
         };
         let lastDiscoveryRun: string | null = null;
         let lastVigilanceRun: string | null = null;
-        try {
+        if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) try {
             const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
             const { error } = await supabaseAdmin.from("schemes").select("id").limit(1);
             supabase.reachable = !error;
@@ -41,6 +42,8 @@ export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(
         } catch (e) {
             supabase.error = (e as Error).message;
         }
+        lastDiscoveryRun = lastDiscoveryRun ?? latestLocalDiscoveryRun();
+        lastVigilanceRun = lastVigilanceRun ?? latestLocalVigilanceRun();
 
         const qdrantPrimary = qdrantConfigured() && qd.reachable === true;
         const enkryptPrimary = enkryptConfigured() && en.reachable === true;
@@ -50,18 +53,17 @@ export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(
             qdrant: {
                 ...qd,
                 primary: qdrantPrimary,
-                fallback: "Supabase + keyword/attribute scoring",
+                fallback: "Local static catalog + keyword/attribute scoring",
             },
             enkrypt: {
                 ...en,
                 primary: enkryptPrimary,
-                fallback: "Gemini-based safety validator (Lovable AI Gateway)",
+                fallback: "OpenRouter-based safety validator or local passthrough",
             },
             supabase,
-            lovableAi: { configured: Boolean(process.env.LOVABLE_API_KEY) },
             openrouter: {
                 configured: Boolean(process.env.OPENROUTER_API_KEY),
-                model: process.env.OPENROUTER_MODEL ?? null,
+                model: process.env.OPENROUTER_MODEL ?? "google/gemini-2.0-flash-exp:free",
             },
             gemini: {
                 configured: Boolean(process.env.GEMINI_API_KEY),
@@ -77,8 +79,8 @@ export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(
                 ? embeddingsConfigured()
                     ? "qdrant-vector"
                     : "qdrant-keyword"
-                : "fallback-supabase-keyword",
-            currentSafetyProvider: enkryptPrimary ? "enkrypt" : "fallback-gemini",
+                : "fallback-local-keyword",
+            currentSafetyProvider: enkryptPrimary ? "enkrypt" : Boolean(process.env.OPENROUTER_API_KEY) ? "fallback-openrouter" : "passthrough",
             currentWorkflowMode: mastraStatus().mode,
             vigilanceAvailable: supabase.reachable,
             lastSuccessfulDiscoveryRun: lastDiscoveryRun,

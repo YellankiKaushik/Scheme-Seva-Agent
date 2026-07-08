@@ -1,6 +1,6 @@
-// Optional Qdrant mirrors for citizen sessions and pending vigilance alerts.
-// The primary durable store is Supabase; these mirrors only fire when Qdrant
-// is configured, so the demo keeps working with zero external deps.
+// Optional Qdrant memory for citizen sessions and pending vigilance alerts.
+// The app also has a local in-memory fallback, so the demo keeps working with
+// zero external dependencies.
 
 import { qdrantConfig, qdrantConfigured } from "./qdrant";
 import type { CitizenProfile } from "./schemeseva-types";

@@ -1,15 +1,14 @@
 // Unified safety validator. Prefers Enkrypt AI when configured; otherwise
-// falls back to the existing Gemini-based validator so demo mode still works.
+// falls back to an OpenRouter-based validator so demo mode still works.
 
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { createLovableAiGatewayProvider } from "./ai-gateway.server";
+import { createOpenRouterProvider } from "./ai-gateway.server";
 import { detectText, enkryptConfigured } from "./enkrypt";
 
 export type SafetyProvider =
     | "enkrypt"
-    | "fallback-gemini"
-    | "fallback-lovable"
+    | "fallback-openrouter"
     | "passthrough"
     | "unavailable";
 
@@ -20,7 +19,7 @@ export interface SafetyReport {
     detections?: Array<{ detector: string; detected: boolean; score?: number }>;
 }
 
-const MODEL = "google/gemini-3-flash-preview";
+const MODEL = process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-exp:free";
 
 export async function validateReport(
     reportMarkdown: string,
@@ -47,12 +46,12 @@ export async function validateReport(
         }
     }
 
-    const key = process.env.LOVABLE_API_KEY;
+    const key = process.env.OPENROUTER_API_KEY;
     if (!key) {
         return { status: "safe", provider: "passthrough", note: "No safety provider configured." };
     }
     try {
-        const gateway = createLovableAiGatewayProvider(key);
+        const gateway = createOpenRouterProvider(key);
         const { output } = await generateText({
             model: gateway(MODEL),
             output: Output.object({
@@ -70,7 +69,7 @@ export async function validateReport(
         });
         return {
             status: output.safe ? "safe" : "warning",
-            provider: "fallback-gemini",
+            provider: "fallback-openrouter",
             note: output.note ?? (output.safe ? "Validated (fallback)." : "Flagged by fallback validator."),
         };
     } catch {

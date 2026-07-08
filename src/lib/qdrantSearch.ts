@@ -1,7 +1,7 @@
 // Qdrant-powered scheme retrieval. Order of preference:
 //   1. Qdrant vector search when both Qdrant + an embedding provider are configured.
 //   2. Qdrant payload scroll (keyword text match) when Qdrant is reachable but embeddings aren't available.
-//   3. Local Supabase + keyword scorer fallback (demo-safe).
+//   3. Local static catalog + keyword scorer fallback (demo-safe).
 
 import type { CitizenProfile, Scheme } from "./schemeseva-types";
 import { discoverCandidates } from "./schemeseva-eligibility";
@@ -11,7 +11,7 @@ import { embedText, embeddingsConfigured } from "./embeddings";
 export type RetrievalSource =
     | "qdrant-vector"
     | "qdrant-keyword"
-    | "fallback-supabase-keyword";
+    | "fallback-local-keyword";
 
 export interface RetrievalResult {
     source: RetrievalSource;
@@ -139,7 +139,7 @@ export async function searchSchemes(
 ): Promise<RetrievalResult> {
     if (!qdrantConfigured()) {
         return {
-            source: "fallback-supabase-keyword",
+            source: "fallback-local-keyword",
             schemes: discoverCandidates(allSchemes, profile, topN),
         };
     }
@@ -174,7 +174,7 @@ export async function searchSchemes(
 
     // 3. Local fallback so the demo always returns something.
     return {
-        source: "fallback-supabase-keyword",
+        source: "fallback-local-keyword",
         schemes: discoverCandidates(allSchemes, profile, topN),
     };
 }
