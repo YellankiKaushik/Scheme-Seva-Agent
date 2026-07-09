@@ -13,7 +13,11 @@ import { checkEligibility, discoverCandidates } from "./schemeseva-eligibility";
 import { searchSchemes } from "./qdrantSearch";
 import { validateAlert, validateReport } from "./safetyValidator";
 import { rememberSession, rememberAlert } from "./qdrantMemory";
-import { rateLimit } from "./ratelimit";
+import {
+  checkDiscoveryRateLimit,
+  checkVigilanceRateLimit,
+  rateLimitIdentity,
+} from "./ratelimit";
 import { flushObservability, startTrace } from "./observability";
 import {
   completed,
@@ -352,9 +356,9 @@ export const runDiscovery = createServerFn({ method: "POST" })
     try {
       ip = getRequestIP({ xForwardedFor: true }) ?? "anon";
     } catch {}
-    const rl = await rateLimit(`discover:${ip}`, 10, 60);
+    const rl = await checkDiscoveryRateLimit(rateLimitIdentity(data.sessionKey, ip));
     if (!rl.allowed) {
-      throw new Error("Rate limit exceeded — please try again in a minute.");
+      throw new Error("Too many requests. Please wait a moment before trying again.");
     }
 
     const trace = startTrace("workflow.schemeDiscovery", {
@@ -630,9 +634,9 @@ export const runVigilance = createServerFn({ method: "POST" })
       try {
         ip = getRequestIP({ xForwardedFor: true }) ?? "anon";
       } catch {}
-      const rl = await rateLimit(`vigilance:${ip}`, 3, 60);
+      const rl = await checkVigilanceRateLimit(rateLimitIdentity(data.sessionKey, ip));
       if (!rl.allowed) {
-        throw new Error("Rate limit exceeded — please try again in a minute.");
+        throw new Error("Too many requests. Please wait a moment before trying again.");
       }
       const trace = startTrace("workflow.vigilance", { sessionKey: data.sessionKey });
       try {
