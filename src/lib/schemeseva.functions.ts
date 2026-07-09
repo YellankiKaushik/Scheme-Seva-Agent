@@ -14,7 +14,7 @@ import { searchSchemes } from "./qdrantSearch";
 import { validateAlert, validateReport } from "./safetyValidator";
 import { rememberSession, rememberAlert } from "./qdrantMemory";
 import { rateLimit } from "./ratelimit";
-import { startTrace } from "./observability";
+import { flushObservability, startTrace } from "./observability";
 import {
   completed,
   fallback,
@@ -219,6 +219,23 @@ Confidence: ${result.confidence}`;
   return `## Schemes you are likely eligible for\n\n${sections.join("\n\n")}\n\nThis is guidance based on the information you shared. Please confirm final eligibility on the official portal or with a local government office.`;
 }
 
+function looksLikeSafetyVerdict(text: string) {
+  const compact = text.trim();
+  if (!compact) return true;
+  if (/User Safety:|Safety Categories:|Report too short to validate/i.test(compact)) return true;
+  return compact.length < 120 && /\bunsafe\b/i.test(compact);
+}
+
+function isCompleteSchemeReport(text: string, schemes: Scheme[]) {
+  if (looksLikeSafetyVerdict(text)) return false;
+  if (!schemes.length) return text.trim().length >= 120;
+  const hasSchemeName = schemes.some((scheme) => text.includes(scheme.schemeName));
+  const hasSource = /source\s*:/i.test(text) || schemes.some((scheme) => text.includes(scheme.sourceUrl));
+  const hasLastVerified =
+    /last verified\s*:/i.test(text) || schemes.some((scheme) => text.includes(scheme.lastVerified));
+  return hasSchemeName && hasSource && hasLastVerified;
+}
+
 // ─────────────────────────────────────────────────────────────
 // PROFILE AGENT — extract structured profile from free text
 // ─────────────────────────────────────────────────────────────
@@ -226,7 +243,18 @@ export const extractProfile = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ text: z.string().min(3).max(4000) }).parse(input))
   .handler(async ({ data }): Promise<{ profile: CitizenProfile; followUp: string | null }> => {
     const gateway = getGateway();
-    if (!gateway) return extractProfileLocally(data.text);
+    const trace = startTrace("agent.profile", {
+      textLength: data.text.length,
+      provider: gateway ? "openrouter" : "local-demo",
+    });
+    if (!gateway) {
+      const localSpan = trace.span("Profile Agent", { provider: "local-demo" });
+      const result = extractProfileLocally(data.text);
+      localSpan.end({ followUp: Boolean(result.followUp), profile: result.profile });
+      await trace.end({ provider: "local-demo", followUp: Boolean(result.followUp) });
+      await flushObservability();
+      return result;
+    }
 
     const schema = z.object({
       name: z.string().nullable(),
@@ -252,7 +280,12 @@ export const extractProfile = createServerFn({ method: "POST" })
     });
 
     try {
-      const { output } = await generateText({
+      const profileSpan = trace.generation("Profile Agent", {
+        provider: "openrouter",
+        model: MODEL,
+        textLength: data.text.length,
+      });
+      const generation = await generateText({
         model: gateway(MODEL),
         output: Output.object({ schema }),
         system:
@@ -264,6 +297,16 @@ export const extractProfile = createServerFn({ method: "POST" })
           "If any critical required field is missing, set followUp to exactly one specific clarifying question. Otherwise followUp = null.",
         prompt: data.text,
       });
+      const { output } = generation;
+      profileSpan.end({
+        provider: "openrouter",
+        model: MODEL,
+        followUp: Boolean(output.followUp),
+        profile: output,
+        usage:
+          (generation as { usage?: unknown; totalUsage?: unknown }).usage ??
+          (generation as { usage?: unknown; totalUsage?: unknown }).totalUsage,
+      });
       const { followUp, ...profile } = output;
       const normalized = {
         ...profile,
@@ -272,8 +315,12 @@ export const extractProfile = createServerFn({ method: "POST" })
         disability: profile.disability ?? profile.isDisabled,
         isDisabled: profile.isDisabled ?? profile.disability,
       } as CitizenProfile;
+      await trace.end({ provider: "openrouter", followUp: Boolean(followUp), profile: normalized });
+      await flushObservability();
       return { profile: normalized, followUp: followUp ?? null };
     } catch (e) {
+      await trace.end({ provider: "openrouter", fallback: NoObjectGeneratedError.isInstance(e) }, e);
+      await flushObservability();
       if (NoObjectGeneratedError.isInstance(e)) {
         return {
           profile: { notes: data.text },
@@ -310,15 +357,36 @@ export const runDiscovery = createServerFn({ method: "POST" })
       throw new Error("Rate limit exceeded — please try again in a minute.");
     }
 
-    const trace = startTrace("workflow.schemeDiscovery", { sessionKey: data.sessionKey });
+    const trace = startTrace("workflow.schemeDiscovery", {
+      sessionKey: data.sessionKey,
+      workflow: "discovery",
+      profile,
+    });
+    try {
+    const profileSpan = trace.span("Profile Agent", { source: "supplied-or-extracted", profile });
+    profileSpan.end({ success: true });
+    const catalogSpan = trace.span("Scheme catalog load", {
+      qdrantConfigured: qdrantConfigured(),
+      supabaseConfigured: supabaseServerConfigured(),
+    });
     const allSchemes = await loadSchemes();
+    catalogSpan.end({ schemesLoaded: allSchemes.length });
 
     // Discovery Agent — prefer Qdrant when configured, fall back to keyword scorer
-    const discSpan = trace.span("agent.discovery");
+    const discSpan = trace.span("Discovery Agent", { topN: 20 });
+    const qdrantSearchSpan = trace.span("Qdrant search", {
+      qdrantConfigured: qdrantConfigured(),
+      embeddingsProvider: process.env.GEMINI_API_KEY ? "gemini" : "keyword-fallback",
+    });
     const retrieval = await searchSchemes(allSchemes, profile, 20);
     const candidates = retrieval.schemes;
+    qdrantSearchSpan.end({
+      retrievalProvider: retrieval.source,
+      candidates: candidates.length,
+      ...retrieval.diagnostics,
+    });
     discSpan.end({
-      source: retrieval.source,
+      retrievalProvider: retrieval.source,
       count: candidates.length,
       ...retrieval.diagnostics,
     });
@@ -332,7 +400,7 @@ export const runDiscovery = createServerFn({ method: "POST" })
         : completed(retrieval.source, "Qdrant retrieval path used.");
 
     // Eligibility Agent — deterministic
-    const eligibilitySpan = trace.span("agent.eligibility");
+    const eligibilitySpan = trace.span("Eligibility Agent", { candidates: candidates.length });
     const eligibleResults: EligibilityResult[] = candidates
       .map((s) => checkEligibility(s, profile))
       .filter((r) => r.confidence !== "none")
@@ -352,8 +420,17 @@ export const runDiscovery = createServerFn({ method: "POST" })
       reportMarkdown =
         "## No strong matches found\n\nBased on the details shared, we couldn't find schemes you likely qualify for from our current catalog of 28 verified central + Telangana schemes.\n\nPlease share more details about your occupation, income, or state so we can search again.";
     } else {
-      const reportSpan = trace.span("agent.report");
       const gateway = getGateway();
+      const reportSpan = gateway
+        ? trace.generation("Report Agent", {
+            provider: "openrouter",
+            model: MODEL,
+            eligibleCount: eligibleResults.length,
+          })
+        : trace.span("Report Agent", {
+            provider: "local-demo",
+            eligibleCount: eligibleResults.length,
+          });
       if (!gateway) {
         reportMarkdown = generateLocalReport(profile, eligibleSchemes, eligibleResults);
         reportSpan.end({ schemes: eligibleResults.length, provider: "local-demo" });
@@ -374,7 +451,7 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
           })
           .join("\n\n---\n\n");
 
-        const { text } = await generateText({
+        const generation = await generateText({
           model: gateway(MODEL),
           system:
             "You are the Report Agent for SchemeSeva. Generate a plain-language markdown report for an Indian citizen about government schemes they may qualify for. " +
@@ -385,8 +462,18 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
             "(5) End with exactly one disclaimer paragraph: 'This is guidance based on the information you shared. Please confirm final eligibility on the official portal or with a local government office.'",
           prompt: `Citizen profile: ${JSON.stringify(profile)}\n\nSchemes to include, in order:\n\n${schemeContext}\n\nGenerate the report now.`,
         });
-        reportMarkdown = text;
-        reportSpan.end({ schemes: eligibleResults.length });
+        reportMarkdown = generation.text;
+        if (!isCompleteSchemeReport(reportMarkdown, eligibleSchemes)) {
+          reportMarkdown = generateLocalReport(profile, eligibleSchemes, eligibleResults);
+        }
+        reportSpan.end({
+          schemes: eligibleResults.length,
+          provider: "openrouter",
+          model: MODEL,
+          usage:
+            (generation as { usage?: unknown; totalUsage?: unknown }).usage ??
+            (generation as { usage?: unknown; totalUsage?: unknown }).totalUsage,
+        });
       }
     }
 
@@ -400,7 +487,17 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
         verified: s.lastVerified,
       })),
     );
+    const safetySpan = trace.span("Enkrypt validation", {
+      primaryProvider: "enkrypt",
+      fallbackProvider: process.env.OPENROUTER_API_KEY ? "fallback-openrouter" : "passthrough",
+      reportLength: reportMarkdown.length,
+    });
     const safetyReport = await validateReport(reportMarkdown, sourceContext);
+    safetySpan.end({
+      safetyProvider: safetyReport.provider,
+      safetyStatus: safetyReport.status,
+      detections: safetyReport.detections?.length ?? 0,
+    });
     const safety: DiscoveryReport["safety"] = {
       status: safetyReport.status,
       note: `[${safetyReport.provider}] ${safetyReport.note}`,
@@ -427,6 +524,11 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
     };
 
     // Optional Qdrant semantic memory mirror
+    const memorySpan = trace.span("Qdrant memory write", {
+      retrievalProvider: retrieval.source,
+      safetyProvider: safetyReport.provider,
+      matches: eligibleResults.length,
+    });
     const memoryResult = await rememberSession(
       data.sessionKey,
       profile,
@@ -435,6 +537,10 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
       retrieval.source,
       safetyReport.provider,
     );
+    memorySpan.end({
+      memoryProvider: memoryResult.provider,
+      memoryWrite: memoryResult.memoryWrite,
+    });
 
     saveLocalSession({
       sessionKey: data.sessionKey,
@@ -484,8 +590,15 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
       retrieval: retrieval.source,
       ...retrieval.diagnostics,
       safetyProvider: safetyReport.provider,
+      memoryProvider: memoryResult.provider,
     });
+    await flushObservability();
     return result;
+    } catch (e) {
+      await trace.end({ success: false }, e);
+      await flushObservability();
+      throw e;
+    }
   });
 
 // ─────────────────────────────────────────────────────────────
@@ -522,8 +635,12 @@ export const runVigilance = createServerFn({ method: "POST" })
         throw new Error("Rate limit exceeded — please try again in a minute.");
       }
       const trace = startTrace("workflow.vigilance", { sessionKey: data.sessionKey });
+      try {
 
       // Load session
+      const sessionSpan = trace.span("Session scan", {
+        supabaseConfigured: supabaseServerConfigured(),
+      });
       let sess: { profile: CitizenProfile; found_schemes: EligibilityResult[] } | null = null;
       if (supabaseServerConfigured()) {
         try {
@@ -548,6 +665,7 @@ export const runVigilance = createServerFn({ method: "POST" })
         const local = getLocalSession(data.sessionKey);
         if (local) sess = { profile: local.profile, found_schemes: local.foundSchemes };
       }
+      sessionSpan.end({ found: Boolean(sess), provider: sess ? "supabase-or-local" : "none" });
       if (!sess) {
         const agentSteps: VigilanceAgentSteps = {
           vigilanceAgent: completed("mastra-adapter", "No saved session found."),
@@ -556,6 +674,7 @@ export const runVigilance = createServerFn({ method: "POST" })
           safetyValidation: fallback("none", "No alert generated."),
         };
         await trace.end({ scanned: 0 });
+        await flushObservability();
         return { scanned: 0, newMatches: 0, alerts: [], workflowMode: "adapter", agentSteps };
       }
 
@@ -564,10 +683,14 @@ export const runVigilance = createServerFn({ method: "POST" })
       const alreadyFound = new Set(foundList.map((r) => r.schemeId));
 
       // Simulate: pick one high-signal scheme the citizen doesn't have yet
+      const schemeScanSpan = trace.span("Scheme scan", {
+        foundSchemes: foundList.length,
+      });
       const all = await loadSchemes();
       const candidates = discoverCandidates(all, profile, 30).filter(
         (s) => !alreadyFound.has(s.id),
       );
+      schemeScanSpan.end({ catalogSize: all.length, unseenCandidates: candidates.length });
 
       const alerts: Array<{
         id: string;
@@ -580,10 +703,18 @@ export const runVigilance = createServerFn({ method: "POST" })
         memoryProvider: string;
       }> = [];
 
+      const eligibilityScanSpan = trace.span("Eligibility checks", {
+        candidates: Math.min(candidates.length, 5),
+      });
       for (const scheme of candidates.slice(0, 5)) {
         const r = checkEligibility(scheme, profile);
         if (r.confidence === "high" || r.confidence === "medium") {
           const alertReason = r.reasons[0] ?? "Matches your saved profile.";
+          const alertValidationSpan = trace.span("Alert validation", {
+            schemeId: scheme.id,
+            confidence: r.confidence,
+            primaryProvider: "enkrypt",
+          });
           const safety = await validateAlert(
             `${scheme.schemeName}: ${alertReason} Urgency: ${r.confidence === "high" ? "high" : "medium"}.`,
             JSON.stringify({
@@ -595,9 +726,17 @@ export const runVigilance = createServerFn({ method: "POST" })
               reason: alertReason,
             }),
           );
+          alertValidationSpan.end({
+            safetyProvider: safety.provider,
+            safetyStatus: safety.status,
+          });
           if (safety.status !== "safe") continue;
           let alertId = `local-${Date.now()}`;
           let memoryProvider = "local+qdrant-pending_alerts";
+          const pendingAlertSpan = trace.span("Pending alert write", {
+            schemeId: scheme.id,
+            safetyProvider: safety.provider,
+          });
           if (supabaseServerConfigured()) {
             try {
               const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -633,11 +772,14 @@ export const runVigilance = createServerFn({ method: "POST" })
           alerts.push(alert);
           saveLocalAlert({ ...alert, sessionKey: data.sessionKey });
           await rememberAlert({ ...alert, sessionKey: data.sessionKey });
+          pendingAlertSpan.end({ memoryProvider });
           if (alerts.length >= 1) break; // Return one fresh alert per simulate click
         }
       }
+      eligibilityScanSpan.end({ alerts: alerts.length });
 
       await trace.end({ scanned: candidates.length, newMatches: alerts.length });
+      await flushObservability();
       const agentSteps: VigilanceAgentSteps = {
         vigilanceAgent: completed("mastra-adapter", "Saved session scanned for new matches."),
         discoveryAgent: completed(
@@ -663,6 +805,11 @@ export const runVigilance = createServerFn({ method: "POST" })
         workflowMode: "adapter",
         agentSteps,
       };
+      } catch (e) {
+        await trace.end({ success: false }, e);
+        await flushObservability();
+        throw e;
+      }
     },
   );
 

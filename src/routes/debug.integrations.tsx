@@ -267,6 +267,41 @@ function IntegrationsPage() {
                 Provider: <code>{data.gemini.embeddingsProvider}</code>
               </p>
             </Card>
+
+            <Card
+              title="Langfuse observability"
+              primary={data.langfuse.configured}
+              badges={[
+                <Pill
+                  key="c"
+                  ok={data.langfuse.configured}
+                  label={data.langfuse.configured ? "credentials set" : "missing"}
+                />,
+                <Pill
+                  key="m"
+                  ok={data.langfuse.tracingMode === "langfuse"}
+                  label={`mode: ${data.langfuse.tracingMode}`}
+                />,
+                <Pill
+                  key="l"
+                  ok={data.langfuse.lastTraceStatus.ok}
+                  label={data.langfuse.lastTraceStatus.ok ? "last trace ok" : "last trace failed"}
+                />,
+              ]}
+            >
+              <p className="text-sm text-muted-foreground">
+                Base URL: <code>{data.langfuse.baseUrl}</code>
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Last trace: {data.langfuse.lastTraceStatus.traceName ?? "none yet"} ·{" "}
+                {data.langfuse.lastTraceStatus.at}
+              </p>
+              {data.langfuse.lastTraceStatus.error ? (
+                <p className="mt-1 text-xs text-amber-700">
+                  Error: {data.langfuse.lastTraceStatus.error}
+                </p>
+              ) : null}
+            </Card>
           </div>
         )}
       </main>

@@ -613,7 +613,7 @@ function AgentApp() {
               </div>
             ) : (
               <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm font-medium text-primary">
-                Safety layer: {report.safety.note}
+                Validated: {report.safety.note}
               </div>
             )}
 
