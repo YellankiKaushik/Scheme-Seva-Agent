@@ -123,5 +123,5 @@ pnpm build
 ## Security Notes
 
 - Do not commit `.env` or `.env.local`.
-- Basic same-origin CSRF protection is enabled for non-GET server requests. Production deployments can still add stronger CSRF/session hardening if user accounts or cookies are introduced.
+- TanStack Start's CSRF middleware plus a same-origin guard are enabled for non-GET server requests. Production deployments can still add stronger CSRF/session hardening if user accounts or cookies are introduced.
 - SchemeSeva provides discovery guidance, not official eligibility approval.

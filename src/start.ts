@@ -1,4 +1,4 @@
-import { createStart, createMiddleware } from "@tanstack/react-start";
+import { createStart, createMiddleware, createCsrfMiddleware } from "@tanstack/react-start";
 
 import { renderErrorPage } from "./lib/error-page";
 import { attachSupabaseAuth } from "@/integrations/supabase/auth-attacher";
@@ -33,7 +33,13 @@ const csrfMiddleware = createMiddleware().server(async ({ next, request }) => {
   return next();
 });
 
+const tanstackCsrfMiddleware = createCsrfMiddleware({
+  filter: ({ request }) => !["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase()),
+  allowRequestsWithoutOriginCheck: true,
+  failureResponse: new Response("Cross-site request blocked", { status: 403 }),
+});
+
 export const startInstance = createStart(() => ({
   functionMiddleware: [attachSupabaseAuth],
-  requestMiddleware: [csrfMiddleware, errorMiddleware],
+  requestMiddleware: [tanstackCsrfMiddleware, csrfMiddleware, errorMiddleware],
 }));

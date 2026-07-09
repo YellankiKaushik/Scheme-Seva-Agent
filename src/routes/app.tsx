@@ -4,16 +4,16 @@ import ReactMarkdown from "react-markdown";
 import { SiteHeader, SiteFooter } from "@/components/site-chrome";
 import { schemeDiscoveryWorkflow } from "@/mastra/workflows/schemeDiscoveryWorkflow";
 import { vigilanceWorkflow } from "@/mastra/workflows/vigilanceWorkflow";
-import type { CitizenProfile, DiscoveryReport } from "@/lib/schemeseva-types";
+import type { CitizenProfile, DiscoveryReport, Gender, Category } from "@/lib/schemeseva-types";
 
 export const Route = createFileRoute("/app")({
   head: () => ({
     meta: [
-      { title: "SchemeSeva agent — discover schemes you qualify for" },
+      { title: "SchemeSeva agent - discover schemes you may qualify for" },
       {
         name: "description",
         content:
-          "Describe your situation in plain English. The SchemeSeva agent finds Indian government schemes you likely qualify for in under a minute.",
+          "Use a guided profile form or describe your situation in plain English. SchemeSeva finds Indian government schemes you are likely eligible for.",
       },
       { property: "og:title", content: "Run the SchemeSeva agent" },
       {
@@ -26,7 +26,148 @@ export const Route = createFileRoute("/app")({
   component: AgentApp,
 });
 
-type Stage = "intake" | "clarify" | "running" | "report";
+type Stage = "intake" | "running" | "report";
+type IntakeMode = "guided" | "words";
+type FormStep = 1 | 2 | 3 | 4;
+type Occupation =
+  | "farmer"
+  | "student"
+  | "salaried"
+  | "self_employed"
+  | "entrepreneur"
+  | "artisan"
+  | "fisherfolk"
+  | "unemployed";
+
+interface ProfileFormState {
+  state: string;
+  district: string;
+  age: string;
+  gender: "" | Gender;
+  category: "" | Extract<Category, "general" | "obc" | "sc" | "st">;
+  occupation: "" | Occupation;
+  annualIncome: string;
+  landAcres: string;
+  hasAadhaar: "" | "yes" | "no";
+  hasBankAccount: "" | "yes" | "no";
+  hasBPL: "" | "yes" | "no";
+  familySize: string;
+  isDisabled: "no" | "yes";
+  isWidow: "no" | "yes";
+  isMinority: "no" | "yes";
+}
+
+const emptyForm: ProfileFormState = {
+  state: "",
+  district: "",
+  age: "",
+  gender: "",
+  category: "",
+  occupation: "",
+  annualIncome: "",
+  landAcres: "",
+  hasAadhaar: "",
+  hasBankAccount: "",
+  hasBPL: "",
+  familySize: "",
+  isDisabled: "no",
+  isWidow: "no",
+  isMinority: "no",
+};
+
+const demoProfiles: Array<{
+  label: string;
+  description: string;
+  form: ProfileFormState;
+}> = [
+  {
+    label: "Farmer",
+    description: "48-year-old SC farmer in Nalgonda with 4 acres.",
+    form: {
+      ...emptyForm,
+      state: "telangana",
+      district: "Nalgonda",
+      age: "48",
+      gender: "male",
+      category: "sc",
+      occupation: "farmer",
+      annualIncome: "90000",
+      landAcres: "4",
+      hasAadhaar: "yes",
+      hasBankAccount: "yes",
+      hasBPL: "no",
+    },
+  },
+  {
+    label: "Student",
+    description: "21-year-old OBC engineering student in Hyderabad.",
+    form: {
+      ...emptyForm,
+      state: "telangana",
+      district: "Hyderabad",
+      age: "21",
+      gender: "female",
+      category: "obc",
+      occupation: "student",
+      annualIncome: "180000",
+      hasAadhaar: "yes",
+      hasBankAccount: "yes",
+      hasBPL: "no",
+    },
+  },
+  {
+    label: "Woman entrepreneur",
+    description: "34-year-old widow entrepreneur in Hyderabad.",
+    form: {
+      ...emptyForm,
+      state: "telangana",
+      district: "Hyderabad",
+      age: "34",
+      gender: "female",
+      category: "general",
+      occupation: "entrepreneur",
+      annualIncome: "80000",
+      hasAadhaar: "yes",
+      hasBankAccount: "yes",
+      hasBPL: "no",
+      isWidow: "yes",
+    },
+  },
+  {
+    label: "Elderly pensioner",
+    description: "67-year-old SC citizen in Karimnagar with no income.",
+    form: {
+      ...emptyForm,
+      state: "telangana",
+      district: "Karimnagar",
+      age: "67",
+      gender: "male",
+      category: "sc",
+      occupation: "unemployed",
+      annualIncome: "0",
+      hasAadhaar: "yes",
+      hasBankAccount: "no",
+      hasBPL: "no",
+    },
+  },
+  {
+    label: "Unemployed youth",
+    description: "24-year-old OBC unemployed graduate in Hyderabad.",
+    form: {
+      ...emptyForm,
+      state: "telangana",
+      district: "Hyderabad",
+      age: "24",
+      gender: "male",
+      category: "obc",
+      occupation: "unemployed",
+      annualIncome: "0",
+      hasAadhaar: "yes",
+      hasBankAccount: "yes",
+      hasBPL: "no",
+    },
+  },
+];
 
 function getSessionKey(): string {
   if (typeof window === "undefined") return "ssr";
@@ -38,12 +179,103 @@ function getSessionKey(): string {
   return key;
 }
 
+function normalizeOccupation(
+  occupation: string | null | undefined,
+): ProfileFormState["occupation"] {
+  const clean = occupation?.toLowerCase().replace(/\s+/g, "_");
+  const allowed = [
+    "farmer",
+    "student",
+    "salaried",
+    "self_employed",
+    "entrepreneur",
+    "artisan",
+    "fisherfolk",
+    "unemployed",
+  ];
+  return allowed.includes(clean ?? "") ? (clean as Occupation) : "";
+}
+
+function profileToForm(profile: CitizenProfile): ProfileFormState {
+  return {
+    ...emptyForm,
+    state: profile.state ?? "",
+    district: profile.district ?? "",
+    age: profile.age != null ? String(profile.age) : "",
+    gender: profile.gender ?? "",
+    category:
+      profile.category === "general" ||
+      profile.category === "obc" ||
+      profile.category === "sc" ||
+      profile.category === "st"
+        ? profile.category
+        : "",
+    occupation: normalizeOccupation(profile.occupation),
+    annualIncome: profile.annualIncome != null ? String(profile.annualIncome) : "",
+    landAcres: profile.landAcres != null ? String(profile.landAcres) : "",
+    hasAadhaar: profile.hasAadhaar == null ? "" : profile.hasAadhaar ? "yes" : "no",
+    hasBankAccount: profile.hasBankAccount == null ? "" : profile.hasBankAccount ? "yes" : "no",
+    hasBPL: profile.hasBPL == null ? "" : profile.hasBPL ? "yes" : "no",
+    familySize: profile.familySize != null ? String(profile.familySize) : "",
+    isDisabled: profile.isDisabled ? "yes" : "no",
+    isWidow: profile.isWidow ? "yes" : "no",
+    isMinority: profile.isMinority ? "yes" : "no",
+  };
+}
+
+function formToProfile(form: ProfileFormState): CitizenProfile {
+  const landAcres =
+    form.occupation === "farmer" && form.landAcres.trim() ? Number(form.landAcres) : null;
+  const familySize = form.familySize.trim() ? Number(form.familySize) : null;
+  return {
+    state: form.state.trim().toLowerCase(),
+    district: form.district.trim() || null,
+    age: Number(form.age),
+    gender: form.gender || null,
+    category: form.category || null,
+    occupation: form.occupation || null,
+    annualIncome: Number(form.annualIncome),
+    landAcres,
+    familySize,
+    hasAadhaar: form.hasAadhaar === "yes",
+    hasBankAccount: form.hasBankAccount === "yes",
+    hasBPL: form.hasBPL === "yes",
+    isBPL: form.hasBPL === "yes",
+    isDisabled: form.isDisabled === "yes",
+    disability: form.isDisabled === "yes",
+    isWidow: form.isWidow === "yes",
+    isMinority: form.isMinority === "yes",
+    notes: buildProfileSummary(form),
+  };
+}
+
+function buildProfileSummary(form: ProfileFormState): string {
+  const parts = [
+    `${form.age || "Unknown age"} year old ${form.category || "unknown category"} ${form.gender || "person"}`,
+    form.occupation ? `${form.occupation.replace("_", " ")}` : "unknown occupation",
+    `from ${[form.district, form.state].filter(Boolean).join(", ") || "unknown location"}`,
+    `annual income ${form.annualIncome || "unknown"}`,
+    form.occupation === "farmer" && form.landAcres ? `${form.landAcres} acres land` : "",
+    form.hasAadhaar ? `${form.hasAadhaar === "yes" ? "has" : "does not have"} Aadhaar` : "",
+    form.hasBankAccount
+      ? `${form.hasBankAccount === "yes" ? "has" : "does not have"} bank account`
+      : "",
+    form.hasBPL ? `${form.hasBPL === "yes" ? "has" : "does not have"} BPL card` : "",
+    form.isWidow === "yes" ? "widow" : "",
+    form.isDisabled === "yes" ? "disabled" : "",
+    form.isMinority === "yes" ? "minority" : "",
+  ];
+  return parts.filter(Boolean).join(". ");
+}
+
 function AgentApp() {
   const [stage, setStage] = useState<Stage>("intake");
+  const [mode, setMode] = useState<IntakeMode>("guided");
+  const [step, setStep] = useState<FormStep>(1);
+  const [form, setForm] = useState<ProfileFormState>(emptyForm);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [text, setText] = useState("");
-  const [clarifyAnswer, setClarifyAnswer] = useState("");
-  const [followUp, setFollowUp] = useState<string | null>(null);
-  const [profile, setProfile] = useState<CitizenProfile | null>(null);
+  const [nlNotice, setNlNotice] = useState<string | null>(null);
   const [report, setReport] = useState<DiscoveryReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [vigilance, setVigilance] = useState<{
@@ -58,31 +290,101 @@ function AgentApp() {
       memoryProvider?: string;
     }>;
   } | null>(null);
+  const [vigilanceLoading, setVigilanceLoading] = useState(false);
+  const [vigilanceError, setVigilanceError] = useState<string | null>(null);
   const [sessionKey, setSessionKey] = useState("ssr");
 
   useEffect(() => {
     setSessionKey(getSessionKey());
   }, []);
 
-  const examples = [
-    "I'm a 42-year-old SC male farmer in Warangal, Telangana. I own 3 acres of land. My family income is around ₹1.2 lakh a year. I have Aadhaar and a bank account. I do not have a BPL card.",
-    "I'm a 28-year-old woman in Hyderabad from an OBC family. I want to start a small tailoring business. Yearly income about ₹80,000.",
-    "I'm 67 years old, widow, living alone in a village in Karimnagar. No income. I have Aadhaar.",
-  ];
+  function updateField<K extends keyof ProfileFormState>(key: K, value: ProfileFormState[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+    setErrors((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }
 
-  async function handleIntake(inputText: string) {
+  function validateStep(targetStep = step) {
+    const next: Record<string, string> = {};
+    if (targetStep === 1) {
+      if (!form.state.trim()) next.state = "State is required.";
+      if (!form.age.trim() || Number(form.age) <= 0) next.age = "Enter a valid age.";
+      if (!form.gender) next.gender = "Choose a gender.";
+    }
+    if (targetStep === 2) {
+      if (!form.category) next.category = "Choose a category.";
+      if (!form.occupation) next.occupation = "Choose an occupation.";
+      if (form.annualIncome.trim() === "" || Number(form.annualIncome) < 0) {
+        next.annualIncome = "Enter annual income, or 0 if there is no income.";
+      }
+      if (
+        form.occupation === "farmer" &&
+        (form.landAcres.trim() === "" || Number(form.landAcres) < 0)
+      ) {
+        next.landAcres = "Enter landholding in acres.";
+      }
+    }
+    if (targetStep === 3) {
+      if (!form.hasAadhaar) next.hasAadhaar = "Choose Aadhaar status.";
+      if (!form.hasBankAccount) next.hasBankAccount = "Choose bank account status.";
+      if (!form.hasBPL) next.hasBPL = "Choose BPL status.";
+    }
+    if (targetStep === 4) {
+      if (form.familySize.trim() && Number(form.familySize) <= 0) {
+        next.familySize = "Family size should be a positive number.";
+      }
+    }
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  }
+
+  function continueStep() {
+    if (!validateStep()) return;
+    setStep((current) => Math.min(4, current + 1) as FormStep);
+  }
+
+  function backStep() {
+    setErrors({});
+    setStep((current) => Math.max(1, current - 1) as FormStep);
+  }
+
+  function applyDemo(profile: ProfileFormState) {
+    setForm(profile);
+    setMode("guided");
+    setStep(4);
+    setErrors({});
+    setNlNotice("Demo profile loaded. Review the details, edit if needed, then find schemes.");
+  }
+
+  async function submitStructuredForm() {
+    for (const candidateStep of [1, 2, 3, 4] as FormStep[]) {
+      if (!validateStep(candidateStep)) {
+        setStep(candidateStep);
+        return;
+      }
+    }
+    await runFullDiscovery(formToProfile(form));
+  }
+
+  async function handleNaturalLanguage() {
     setError(null);
+    setNlNotice(null);
     setStage("running");
     try {
       const {
-        profile: p,
-        followUp: f,
+        profile,
+        followUp,
         report: workflowReport,
-      } = await schemeDiscoveryWorkflow.run({ sessionKey, text: inputText });
-      setProfile(p);
-      if (f) {
-        setFollowUp(f);
-        setStage("clarify");
+      } = await schemeDiscoveryWorkflow.run({ sessionKey, text });
+      if (followUp) {
+        setForm(profileToForm(profile));
+        setMode("guided");
+        setStep(1);
+        setNlNotice(`I found some details, but a few required fields are missing. ${followUp}`);
+        setStage("intake");
         return;
       }
       if (workflowReport) {
@@ -90,19 +392,23 @@ function AgentApp() {
         setStage("report");
         return;
       }
-      await runFullDiscovery(p);
+      setForm(profileToForm(profile));
+      await runFullDiscovery(profile);
     } catch (e) {
       setError((e as Error).message);
       setStage("intake");
     }
   }
 
-  async function runFullDiscovery(p: CitizenProfile) {
+  async function runFullDiscovery(profile: CitizenProfile) {
+    setError(null);
+    setVigilance(null);
+    setVigilanceError(null);
     setStage("running");
     try {
       const { report: workflowReport } = await schemeDiscoveryWorkflow.run({
         sessionKey,
-        profile: p,
+        profile,
       });
       if (!workflowReport) throw new Error("Workflow did not return a report.");
       setReport(workflowReport);
@@ -113,91 +419,161 @@ function AgentApp() {
     }
   }
 
-  async function handleClarify() {
-    const combined = `${text}\n\nAdditional: ${clarifyAnswer}`;
-    setText(combined);
-    setClarifyAnswer("");
-    setFollowUp(null);
-    await handleIntake(combined);
-  }
-
   async function handleVigilance() {
     setVigilance(null);
-    const r = await vigilanceWorkflow.run({ sessionKey });
-    setVigilance(r);
+    setVigilanceError(null);
+    setVigilanceLoading(true);
+    try {
+      const result = await vigilanceWorkflow.run({ sessionKey });
+      setVigilance(result);
+    } catch (e) {
+      setVigilanceError((e as Error).message || "Vigilance scan could not run.");
+    } finally {
+      setVigilanceLoading(false);
+    }
   }
 
   function reset() {
     setStage("intake");
+    setMode("guided");
+    setStep(1);
+    setForm(emptyForm);
     setText("");
     setReport(null);
-    setProfile(null);
-    setFollowUp(null);
+    setNlNotice(null);
     setError(null);
+    setErrors({});
     setVigilance(null);
+    setVigilanceError(null);
   }
 
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
-      <main className="mx-auto max-w-4xl px-4 py-10">
+      <main className="mx-auto max-w-5xl px-4 py-10">
         {stage === "intake" && (
-          <section>
-            <h1 className="font-display text-3xl font-semibold text-primary sm:text-4xl">
-              Tell me about yourself.
-            </h1>
-            <p className="mt-2 text-muted-foreground">
-              Describe your situation in plain English — state, age, occupation, income, family. The
-              Profile Agent will extract what it needs.
-            </p>
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={7}
-              placeholder="e.g. I'm a 35-year-old woman in Hyderabad. I run a small tea stall. My yearly income is about ₹1 lakh…"
-              className="mt-6 w-full rounded-xl border border-input bg-card p-4 text-base text-primary shadow-sm outline-none focus:ring-2 focus:ring-ring"
-            />
-            <div className="mt-3 flex flex-wrap gap-2">
-              {examples.map((ex, i) => (
+          <section className="space-y-8">
+            <div>
+              <span className="text-sm font-semibold uppercase tracking-wider text-accent">
+                SchemeSeva agent
+              </span>
+              <h1 className="mt-2 font-display text-3xl font-semibold text-primary sm:text-4xl">
+                Build a profile, then run the five-agent workflow.
+              </h1>
+              <p className="mt-3 max-w-3xl text-muted-foreground">
+                The guided form avoids guesswork and keeps the demo moving. You can still describe
+                your situation in words if you prefer.
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-5">
+              {demoProfiles.map((demo) => (
                 <button
-                  key={i}
-                  onClick={() => setText(ex)}
-                  className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground hover:text-primary"
+                  key={demo.label}
+                  type="button"
+                  onClick={() => applyDemo(demo.form)}
+                  className="rounded-lg border border-border bg-card p-4 text-left shadow-sm transition hover:border-accent hover:bg-parchment/60 focus:outline-none focus:ring-2 focus:ring-ring"
                 >
-                  Try example {i + 1}
+                  <span className="font-display text-base font-semibold text-primary">
+                    {demo.label}
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                    {demo.description}
+                  </span>
                 </button>
               ))}
             </div>
-            {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
-            <button
-              onClick={() => handleIntake(text)}
-              disabled={text.trim().length < 10}
-              className="mt-6 inline-flex items-center rounded-lg bg-primary px-6 py-3 font-semibold text-primary-foreground shadow-sm disabled:opacity-50"
-            >
-              Run the agents →
-            </button>
-          </section>
-        )}
 
-        {stage === "clarify" && followUp && (
-          <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-            <span className="text-xs font-semibold uppercase tracking-wider text-accent">
-              Profile Agent · needs one clarification
-            </span>
-            <h2 className="mt-2 font-display text-2xl font-semibold text-primary">{followUp}</h2>
-            <textarea
-              value={clarifyAnswer}
-              onChange={(e) => setClarifyAnswer(e.target.value)}
-              rows={3}
-              className="mt-4 w-full rounded-lg border border-input bg-background p-3 text-primary outline-none focus:ring-2 focus:ring-ring"
-            />
-            <button
-              onClick={handleClarify}
-              disabled={clarifyAnswer.trim().length < 2}
-              className="mt-4 rounded-lg bg-primary px-5 py-2.5 font-semibold text-primary-foreground disabled:opacity-50"
-            >
-              Continue
-            </button>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <div className="flex flex-wrap gap-2 border-b border-border pb-4">
+                <TabButton active={mode === "guided"} onClick={() => setMode("guided")}>
+                  Guided form
+                </TabButton>
+                <TabButton active={mode === "words"} onClick={() => setMode("words")}>
+                  Describe in words
+                </TabButton>
+              </div>
+
+              {nlNotice && (
+                <p className="mt-4 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-primary">
+                  {nlNotice}
+                </p>
+              )}
+              {error && (
+                <p className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </p>
+              )}
+
+              {mode === "guided" ? (
+                <div className="mt-6">
+                  <Progress step={step} />
+                  <div className="mt-6">
+                    {step === 1 && <StepBasic form={form} errors={errors} update={updateField} />}
+                    {step === 2 && (
+                      <StepEconomic form={form} errors={errors} update={updateField} />
+                    )}
+                    {step === 3 && (
+                      <StepDocuments form={form} errors={errors} update={updateField} />
+                    )}
+                    {step === 4 && <StepReview form={form} errors={errors} update={updateField} />}
+                  </div>
+                  <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={backStep}
+                      disabled={step === 1}
+                      className="rounded-md border border-border bg-card px-4 py-2 text-sm font-semibold text-primary disabled:opacity-40"
+                    >
+                      Back
+                    </button>
+                    {step < 4 ? (
+                      <button
+                        type="button"
+                        onClick={continueStep}
+                        className="rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
+                      >
+                        Continue
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={submitStructuredForm}
+                        className="rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
+                      >
+                        Find schemes
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-6">
+                  <label htmlFor="natural-profile" className="font-medium text-primary">
+                    Describe the citizen profile
+                  </label>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    If anything critical is missing, SchemeSeva will move the extracted details into
+                    the guided form so you can complete them.
+                  </p>
+                  <textarea
+                    id="natural-profile"
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    rows={7}
+                    placeholder="Example: 48-year-old SC male farmer from Nalgonda, Telangana. 4 acres land, annual income 90000, has Aadhaar and bank account, no BPL."
+                    className="mt-4 w-full rounded-lg border border-input bg-background p-4 text-base text-primary outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleNaturalLanguage}
+                    disabled={text.trim().length < 10}
+                    className="mt-4 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                  >
+                    Extract profile
+                  </button>
+                </div>
+              )}
+            </div>
           </section>
         )}
 
@@ -205,7 +581,7 @@ function AgentApp() {
           <section className="rounded-xl border border-border bg-card p-8 text-center shadow-sm">
             <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-secondary border-t-accent" />
             <h2 className="mt-6 font-display text-2xl font-semibold text-primary">
-              The agents are working…
+              The agents are working...
             </h2>
             <ul className="mx-auto mt-4 max-w-md space-y-2 text-left text-sm text-muted-foreground">
               <li>1. Extracting profile</li>
@@ -219,18 +595,24 @@ function AgentApp() {
 
         {stage === "report" && report && (
           <section className="space-y-6">
+            <div className="flex flex-wrap gap-2">
+              <StatusPill label={`Retrieval: ${report.retrievalProvider}`} />
+              <StatusPill label={`Safety: ${report.safety.provider}`} />
+              <StatusPill label={`Workflow: ${report.workflowMode ?? "adapter"}`} />
+            </div>
+
             {report.safety.status === "safe" ? (
               <div className="rounded-lg border border-success/40 bg-success/10 px-4 py-3 text-sm font-medium text-success">
-                ✓ {report.safety.note}
+                Validated: {report.safety.note}
               </div>
             ) : (
               <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm font-medium text-primary">
-                ⚠ Safety layer: {report.safety.note}
+                Safety layer: {report.safety.note}
               </div>
             )}
 
             <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="font-display text-2xl font-semibold text-primary">
                   Your personalised report
                 </h2>
@@ -244,48 +626,58 @@ function AgentApp() {
             </div>
 
             <div className="rounded-xl border border-accent/40 bg-accent/5 p-6">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <span className="text-xs font-semibold uppercase tracking-wider text-accent">
-                    Vigilance Agent · autonomous
+                    Vigilance Agent - autonomous
                   </span>
                   <h3 className="mt-1 font-display text-xl font-semibold text-primary">
                     Simulate a new scheme launch
                   </h3>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    The agent scans your saved profile against schemes you haven't seen and fires an
-                    alert if you likely qualify — without being asked.
+                    The agent scans your saved profile against schemes you have not seen and fires
+                    an alert if you likely qualify.
                   </p>
                 </div>
                 <button
+                  type="button"
                   onClick={handleVigilance}
-                  className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+                  disabled={vigilanceLoading}
+                  className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
                 >
-                  Run vigilance scan
+                  {vigilanceLoading ? "Scanning..." : "Run vigilance scan"}
                 </button>
               </div>
+              {vigilanceError && (
+                <p className="mt-4 rounded-lg border border-warning/40 bg-card px-3 py-2 text-sm text-primary">
+                  Vigilance scan could not complete: {vigilanceError}
+                </p>
+              )}
               {vigilance && (
                 <div className="mt-4">
                   {vigilance.newMatches === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      No new matching schemes right now — the agent will keep watching.
+                      No new matching schemes right now. The agent will keep watching.
                     </p>
                   ) : (
-                    vigilance.alerts.map((a) => (
-                      <div key={a.id} className="rounded-lg border border-accent/40 bg-card p-4">
-                        <div className="flex items-center gap-2">
+                    vigilance.alerts.map((alert) => (
+                      <div
+                        key={alert.id}
+                        className="rounded-lg border border-accent/40 bg-card p-4"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold uppercase text-accent-foreground">
-                            {a.urgency} urgency
+                            {alert.urgency} urgency
                           </span>
                           <h4 className="font-display font-semibold text-primary">
-                            {a.schemeName}
+                            {alert.schemeName}
                           </h4>
                         </div>
-                        <p className="mt-1 text-sm text-muted-foreground">{a.reason}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{alert.reason}</p>
                         <p className="mt-2 text-xs text-muted-foreground">
-                          Safety: {a.validationProvider ?? "fallback"} · Retrieval:{" "}
-                          {a.retrievalProvider ?? "session memory"} · Memory:{" "}
-                          {a.memoryProvider ?? "fallback"}
+                          Safety: {alert.validationProvider ?? "fallback"} - Retrieval:{" "}
+                          {alert.retrievalProvider ?? "session memory"} - Memory:{" "}
+                          {alert.memoryProvider ?? "fallback"}
                         </p>
                       </div>
                     ))
@@ -296,6 +688,7 @@ function AgentApp() {
 
             <div className="flex justify-end">
               <button
+                type="button"
                 onClick={reset}
                 className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-primary hover:bg-secondary"
               >
@@ -309,3 +702,326 @@ function AgentApp() {
     </div>
   );
 }
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-md px-3 py-2 text-sm font-semibold ${
+        active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Progress({ step }: { step: FormStep }) {
+  const labels = ["Basic details", "Social + economic", "Documents", "Review"];
+  return (
+    <ol className="grid gap-2 sm:grid-cols-4">
+      {labels.map((label, index) => {
+        const number = index + 1;
+        const active = number === step;
+        const done = number < step;
+        return (
+          <li
+            key={label}
+            className={`rounded-lg border px-3 py-2 text-sm ${
+              active || done
+                ? "border-accent bg-accent/10 text-primary"
+                : "border-border bg-background text-muted-foreground"
+            }`}
+          >
+            <span className="font-semibold">{number}.</span> {label}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function StepBasic({
+  form,
+  errors,
+  update,
+}: {
+  form: ProfileFormState;
+  errors: Record<string, string>;
+  update: <K extends keyof ProfileFormState>(key: K, value: ProfileFormState[K]) => void;
+}) {
+  return (
+    <fieldset className="grid gap-4 sm:grid-cols-2">
+      <Field label="State" error={errors.state}>
+        <input
+          value={form.state}
+          onChange={(e) => update("state", e.target.value)}
+          className={inputClass}
+          placeholder="Telangana"
+        />
+      </Field>
+      <Field label="District (optional)">
+        <input
+          value={form.district}
+          onChange={(e) => update("district", e.target.value)}
+          className={inputClass}
+          placeholder="Hyderabad"
+        />
+      </Field>
+      <Field label="Age" error={errors.age}>
+        <input
+          type="number"
+          min="0"
+          value={form.age}
+          onChange={(e) => update("age", e.target.value)}
+          className={inputClass}
+          placeholder="48"
+        />
+      </Field>
+      <Field label="Gender" error={errors.gender}>
+        <Segmented
+          value={form.gender}
+          options={["male", "female", "other"]}
+          onChange={(value) => update("gender", value as Gender)}
+        />
+      </Field>
+    </fieldset>
+  );
+}
+
+function StepEconomic({
+  form,
+  errors,
+  update,
+}: {
+  form: ProfileFormState;
+  errors: Record<string, string>;
+  update: <K extends keyof ProfileFormState>(key: K, value: ProfileFormState[K]) => void;
+}) {
+  return (
+    <fieldset className="grid gap-4 sm:grid-cols-2">
+      <Field label="Category" error={errors.category}>
+        <Segmented
+          value={form.category}
+          options={["general", "obc", "sc", "st"]}
+          onChange={(value) => update("category", value as ProfileFormState["category"])}
+        />
+      </Field>
+      <Field label="Occupation" error={errors.occupation}>
+        <select
+          value={form.occupation}
+          onChange={(e) => update("occupation", e.target.value as Occupation)}
+          className={inputClass}
+        >
+          <option value="">Choose occupation</option>
+          <option value="farmer">Farmer</option>
+          <option value="student">Student</option>
+          <option value="salaried">Salaried</option>
+          <option value="self_employed">Self employed</option>
+          <option value="entrepreneur">Entrepreneur</option>
+          <option value="artisan">Artisan</option>
+          <option value="fisherfolk">Fisherfolk</option>
+          <option value="unemployed">Unemployed</option>
+        </select>
+      </Field>
+      <Field label="Annual income" error={errors.annualIncome}>
+        <input
+          type="number"
+          min="0"
+          value={form.annualIncome}
+          onChange={(e) => update("annualIncome", e.target.value)}
+          className={inputClass}
+          placeholder="90000"
+        />
+      </Field>
+      {form.occupation === "farmer" && (
+        <Field label="Landholding in acres" error={errors.landAcres}>
+          <input
+            type="number"
+            min="0"
+            step="0.1"
+            value={form.landAcres}
+            onChange={(e) => update("landAcres", e.target.value)}
+            className={inputClass}
+            placeholder="4"
+          />
+        </Field>
+      )}
+    </fieldset>
+  );
+}
+
+function StepDocuments({
+  form,
+  errors,
+  update,
+}: {
+  form: ProfileFormState;
+  errors: Record<string, string>;
+  update: <K extends keyof ProfileFormState>(key: K, value: ProfileFormState[K]) => void;
+}) {
+  return (
+    <fieldset className="grid gap-4 sm:grid-cols-3">
+      <Field label="Has Aadhaar?" error={errors.hasAadhaar}>
+        <Segmented
+          value={form.hasAadhaar}
+          options={["yes", "no"]}
+          onChange={(value) => update("hasAadhaar", value as "yes" | "no")}
+        />
+      </Field>
+      <Field label="Has bank account?" error={errors.hasBankAccount}>
+        <Segmented
+          value={form.hasBankAccount}
+          options={["yes", "no"]}
+          onChange={(value) => update("hasBankAccount", value as "yes" | "no")}
+        />
+      </Field>
+      <Field label="Has BPL card?" error={errors.hasBPL}>
+        <Segmented
+          value={form.hasBPL}
+          options={["yes", "no"]}
+          onChange={(value) => update("hasBPL", value as "yes" | "no")}
+        />
+      </Field>
+    </fieldset>
+  );
+}
+
+function StepReview({
+  form,
+  errors,
+  update,
+}: {
+  form: ProfileFormState;
+  errors: Record<string, string>;
+  update: <K extends keyof ProfileFormState>(key: K, value: ProfileFormState[K]) => void;
+}) {
+  const rows = [
+    ["State", form.state],
+    ["District", form.district || "Not provided"],
+    ["Age", form.age],
+    ["Gender", form.gender],
+    ["Category", form.category],
+    ["Occupation", form.occupation.replace("_", " ")],
+    ["Annual income", form.annualIncome],
+    ["Land acres", form.occupation === "farmer" ? form.landAcres : "Not applicable"],
+    ["Aadhaar", form.hasAadhaar],
+    ["Bank account", form.hasBankAccount],
+    ["BPL", form.hasBPL],
+  ];
+  return (
+    <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
+      <fieldset className="grid gap-4">
+        <Field label="Family size (optional)" error={errors.familySize}>
+          <input
+            type="number"
+            min="1"
+            value={form.familySize}
+            onChange={(e) => update("familySize", e.target.value)}
+            className={inputClass}
+            placeholder="4"
+          />
+        </Field>
+        <Field label="Disabled?">
+          <Segmented
+            value={form.isDisabled}
+            options={["yes", "no"]}
+            onChange={(value) => update("isDisabled", value as "yes" | "no")}
+          />
+        </Field>
+        <Field label="Widow?">
+          <Segmented
+            value={form.isWidow}
+            options={["yes", "no"]}
+            onChange={(value) => update("isWidow", value as "yes" | "no")}
+          />
+        </Field>
+        <Field label="Minority community?">
+          <Segmented
+            value={form.isMinority}
+            options={["yes", "no"]}
+            onChange={(value) => update("isMinority", value as "yes" | "no")}
+          />
+        </Field>
+      </fieldset>
+      <div className="rounded-lg border border-border bg-background p-4">
+        <h3 className="font-display text-lg font-semibold text-primary">Review details</h3>
+        <dl className="mt-3 grid gap-2 text-sm">
+          {rows.map(([label, value]) => (
+            <div key={label} className="flex justify-between gap-4 border-b border-border/50 py-1">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="text-right font-medium capitalize text-primary">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  error,
+  children,
+}: {
+  label: string;
+  error?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="text-sm font-medium text-primary">{label}</span>
+      <span className="mt-1 block">{children}</span>
+      {error && <span className="mt-1 block text-xs text-destructive">{error}</span>}
+    </label>
+  );
+}
+
+function Segmented({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          className={`rounded-md border px-3 py-2 text-sm font-semibold capitalize ${
+            value === option
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-border bg-card text-primary hover:bg-secondary"
+          }`}
+        >
+          {option.replace("_", " ")}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function StatusPill({ label }: { label: string }) {
+  return (
+    <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold text-primary">
+      {label}
+    </span>
+  );
+}
+
+const inputClass =
+  "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-primary outline-none focus:ring-2 focus:ring-ring";
