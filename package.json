@@ -8,6 +8,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "smoke:local": "tsx scripts/smoke-local.ts",
     "seed:qdrant": "tsx scripts/seed-qdrant.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
