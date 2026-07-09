@@ -1,19 +1,20 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { ExternalLink, Search } from "lucide-react";
+import { useMemo, useState } from "react";
 import { SiteHeader, SiteFooter } from "@/components/site-chrome";
 import { listSchemes } from "@/lib/schemeseva.functions";
 import type { Scheme } from "@/lib/schemeseva-types";
-import { useState, useMemo } from "react";
 
 export const Route = createFileRoute("/schemes")({
   head: () => ({
     meta: [
-      { title: "Verified schemes catalog — SchemeSeva" },
+      { title: "Verified schemes catalog - SchemeSeva" },
       {
         name: "description",
         content:
           "Browse 28 verified central and Telangana government welfare schemes indexed by SchemeSeva, with eligibility rules and official source URLs.",
       },
-      { property: "og:title", content: "Verified government schemes catalog — SchemeSeva" },
+      { property: "og:title", content: "Verified government schemes catalog - SchemeSeva" },
       {
         property: "og:description",
         content:
@@ -23,25 +24,29 @@ export const Route = createFileRoute("/schemes")({
   }),
   loader: async () => listSchemes(),
   component: SchemesPage,
-  errorComponent: ({ error, reset }) => {
-    const router = useRouter();
-    return (
-      <div className="p-8 text-center">
+  errorComponent: SchemesError,
+  notFoundComponent: () => <div className="p-8">Not found.</div>,
+});
+
+function SchemesError({ error, reset }: { error: Error; reset: () => void }) {
+  const router = useRouter();
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-8 text-center">
+      <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
         <p className="text-destructive">Could not load schemes: {error.message}</p>
         <button
           onClick={() => {
             router.invalidate();
             reset();
           }}
-          className="mt-4 rounded-md bg-primary px-4 py-2 text-primary-foreground"
+          className="mt-4 rounded-md bg-primary px-4 py-2 font-semibold text-primary-foreground"
         >
           Retry
         </button>
       </div>
-    );
-  },
-  notFoundComponent: () => <div className="p-8">Not found.</div>,
-});
+    </div>
+  );
+}
 
 function SchemesPage() {
   const { schemes, count } = Route.useLoaderData();
@@ -64,37 +69,49 @@ function SchemesPage() {
     <div className="min-h-screen bg-background">
       <SiteHeader />
       <main className="mx-auto max-w-6xl px-4 py-12">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="font-display text-3xl font-semibold text-primary sm:text-4xl">
-              Scheme catalog
-            </h1>
-            <p className="mt-2 text-muted-foreground">
-              {count} verified schemes indexed by SchemeSeva · Central + Telangana
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search by name, ministry, keyword…"
-              className="w-64 rounded-md border border-input bg-card px-3 py-2 text-sm text-primary outline-none focus:ring-2 focus:ring-ring"
-            />
-            <select
-              value={scope}
-              onChange={(e) => setScope(e.target.value as typeof scope)}
-              className="rounded-md border border-input bg-card px-3 py-2 text-sm text-primary"
-            >
-              <option value="all">All</option>
-              <option value="central">Central</option>
-              <option value="telangana">Telangana</option>
-            </select>
+        <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <span className="inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
+                Verified scheme catalog
+              </span>
+              <h1 className="mt-3 font-display text-3xl font-semibold text-primary sm:text-4xl">
+                Browse {count} Central + Telangana schemes
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                Search the focused catalog used by the agent. Coverage is intentionally scoped for
+                the hackathon demo and includes official sources plus last verified dates.
+              </p>
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <label className="relative">
+                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search by name, ministry, keyword..."
+                  className="w-full rounded-md border border-input bg-background py-2 pl-9 pr-3 text-sm text-primary outline-none transition focus:ring-2 focus:ring-ring sm:w-72"
+                />
+              </label>
+              <select
+                value={scope}
+                onChange={(e) => setScope(e.target.value as typeof scope)}
+                className="rounded-md border border-input bg-background px-3 py-2 text-sm font-semibold text-primary outline-none transition focus:ring-2 focus:ring-ring"
+              >
+                <option value="all">All</option>
+                <option value="central">Central</option>
+                <option value="telangana">Telangana</option>
+              </select>
+            </div>
           </div>
         </div>
 
         <div className="mt-8 grid gap-4 md:grid-cols-2">
           {filtered.map((s: Scheme) => (
-            <article key={s.id} className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <article
+              key={s.id}
+              className="rounded-lg border border-border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-md"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="font-display text-lg font-semibold text-primary">
@@ -109,7 +126,7 @@ function SchemesPage() {
               <div className="mt-3 inline-flex rounded-md bg-success/15 px-2.5 py-1 text-sm font-semibold text-success">
                 {s.benefitAmount}
               </div>
-              <p className="mt-3 text-sm text-muted-foreground">{s.description}</p>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{s.description}</p>
               <div className="mt-4 flex flex-wrap gap-1.5">
                 {s.keywords.slice(0, 5).map((k: string) => (
                   <span
@@ -120,24 +137,25 @@ function SchemesPage() {
                   </span>
                 ))}
               </div>
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <div className="mt-4 space-y-2 text-xs text-muted-foreground">
                 <a
                   href={s.sourceUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="underline hover:text-accent"
+                  className="inline-flex max-w-full items-center gap-1 break-all font-semibold text-primary underline hover:text-accent"
                 >
-                  Official source ↗
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                  sourceUrl: {s.sourceUrl}
                 </a>
-                <span>Last verified: {s.lastVerified}</span>
+                <p>lastVerified: {s.lastVerified}</p>
               </div>
             </article>
           ))}
         </div>
         {filtered.length === 0 && (
-          <p className="mt-10 text-center text-muted-foreground">
-            No matches. Try a different keyword.
-          </p>
+          <div className="mt-10 rounded-lg border border-border bg-card p-6 text-center text-muted-foreground shadow-sm">
+            No matches. Try a different keyword or scope.
+          </div>
         )}
       </main>
       <SiteFooter />
