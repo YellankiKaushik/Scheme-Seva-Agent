@@ -2,7 +2,7 @@
 
 SchemeSeva is an independent TypeScript civic AI agent for discovering Indian government schemes a citizen is **likely eligible** for. It uses a five-agent workflow: profile extraction, scheme discovery, deterministic eligibility, grounded report generation, and proactive vigilance alerts.
 
-The app can run locally in demo mode with a built-in verified fallback catalog. External services improve retrieval, safety, observability, and persistence, but they are not required for the basic demo flow. The submitted MVP target is 25-30 verified schemes seeded into Qdrant; the local fallback catalog currently contains 8 representative schemes so the demo still works without external services.
+The app can run locally in demo mode with a built-in verified fallback catalog. External services improve retrieval, safety, observability, and persistence, but they are not required for the basic demo flow. The submitted MVP target is 25-30 verified Central + Telangana schemes; the local fallback catalog and Qdrant seed path now use the same 28 representative verified schemes.
 
 ## Stack
 
@@ -26,7 +26,7 @@ pnpm dev
 
 Copy `.env.example` to `.env` when enabling external providers. For the default local demo, `NEXT_PUBLIC_DEMO_MODE=true` is enough.
 
-For the full judged demo, seed Qdrant with the 25-30 verified scheme dataset before presenting. Without Qdrant, SchemeSeva uses the smaller local fallback catalog.
+For the full judged demo, seed Qdrant with the 28-scheme verified dataset before presenting. Without Qdrant, SchemeSeva uses the same catalog through local keyword/attribute retrieval.
 
 ## Environment Variables
 
