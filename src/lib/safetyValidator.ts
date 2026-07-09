@@ -12,6 +12,11 @@ export interface SafetyReport {
   status: "safe" | "warning";
   provider: SafetyProvider;
   note: string;
+  validated: boolean;
+  issues: string[];
+  warning?: string;
+  schemaUsed?: string;
+  rawStatus?: string;
   detections?: Array<{ detector: string; detected: boolean; score?: number }>;
 }
 
@@ -22,20 +27,44 @@ export async function validateReport(
   sourceContext: string,
 ): Promise<SafetyReport> {
   if (reportMarkdown.length < 80) {
-    return { status: "safe", provider: "passthrough", note: "Report too short to validate." };
+    return {
+      status: "safe",
+      provider: "passthrough",
+      note: "Report too short to validate.",
+      validated: true,
+      issues: [],
+      warning: "Report too short to validate.",
+      rawStatus: "short-report",
+    };
   }
 
   let enkryptFallbackWarning: string | null = null;
   if (enkryptConfigured()) {
     try {
       const r = await detectText(reportMarkdown, sourceContext);
-      const flagged = r.detections.filter((d) => d.detected).map((d) => d.detector);
+      const flaggedDetections = r.detections.filter((d) => d.detected);
+      const flagged = flaggedDetections.map((d) => d.detector);
+      const onlyGenericPii =
+        flaggedDetections.length > 0 &&
+        flaggedDetections.every((d) =>
+          /pii|privacy|aadhaar|aadhar|bank/i.test(`${d.detector} ${d.detail ?? ""}`),
+        );
+      const warning = onlyGenericPii
+        ? "Checked by Enkrypt AI Guardrails. Review official source before applying."
+        : undefined;
       return {
-        status: r.safe ? "safe" : "warning",
+        status: r.safe || onlyGenericPii ? "safe" : "warning",
         provider: "enkrypt",
         note: r.safe
           ? `Validated by Enkrypt AI Guardrails${r.detectSchemaUsed ? ` (${r.detectSchemaUsed})` : ""}.`
+          : onlyGenericPii
+            ? warning!
           : `Enkrypt AI flagged: ${flagged.join(", ") || "unspecified"}${r.detectSchemaUsed ? ` (${r.detectSchemaUsed})` : ""}.`,
+        validated: true,
+        issues: flagged,
+        warning,
+        schemaUsed: r.detectSchemaUsed,
+        rawStatus: r.safe ? "safe" : "flagged",
         detections: r.detections,
       };
     } catch (e) {
@@ -45,7 +74,14 @@ export async function validateReport(
 
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) {
-    return { status: "safe", provider: "passthrough", note: "No safety provider configured." };
+    return {
+      status: "safe",
+      provider: "passthrough",
+      note: "No safety provider configured.",
+      validated: true,
+      issues: [],
+      rawStatus: "no-provider",
+    };
   }
   try {
     const gateway = createOpenRouterProvider(key);
@@ -74,12 +110,24 @@ export async function validateReport(
         ]
           .filter(Boolean)
           .join(" "),
+      validated: true,
+      issues: [
+        output.hasHallucination ? "hallucination" : null,
+        output.hasBias ? "bias" : null,
+        output.hasToxicity ? "toxicity" : null,
+      ].filter(Boolean) as string[],
+      warning: output.safe ? enkryptFallbackWarning ?? undefined : output.note,
+      rawStatus: output.safe ? "safe" : "flagged",
     };
   } catch {
     return {
       status: "safe",
       provider: "unavailable",
       note: enkryptFallbackWarning ?? "Validator unavailable.",
+      validated: false,
+      issues: [],
+      warning: enkryptFallbackWarning ?? "Validator unavailable.",
+      rawStatus: "unavailable",
     };
   }
 }
