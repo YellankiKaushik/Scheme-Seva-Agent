@@ -150,19 +150,53 @@ function IntegrationsPage() {
                   label={data.enkrypt.configured ? "credentials set" : "no credentials"}
                 />,
                 <Pill
-                  key="r"
-                  ok={data.enkrypt.reachable === true}
+                  key="h"
+                  ok={data.enkrypt.healthConnected === true || data.enkrypt.reachable === true}
                   label={
-                    data.enkrypt.reachable === true
-                      ? "guardrails reachable"
+                    data.enkrypt.healthConnected === true || data.enkrypt.reachable === true
+                      ? "health connected"
                       : data.enkrypt.configured
                         ? "unreachable"
                         : "fallback active"
                   }
                 />,
+                <Pill
+                  key="d"
+                  ok={data.enkrypt.detectPayloadValid === true}
+                  label={
+                    data.enkrypt.detectPayloadValid === true
+                      ? "detect connected"
+                      : data.enkrypt.healthConnected === true
+                        ? "detect payload invalid"
+                        : "detect fallback"
+                  }
+                />,
               ]}
             >
               <p className="text-sm text-muted-foreground">Base URL: {data.enkrypt.baseUrl}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Health:{" "}
+                <code>{data.enkrypt.healthConnected === true ? "connected" : "failed"}</code> ·
+                Detect:{" "}
+                <code>
+                  {data.enkrypt.detectPayloadValid === true
+                    ? "connected"
+                    : data.enkrypt.healthConnected === true
+                      ? "payload invalid"
+                      : "failed"}
+                </code>
+                {data.enkrypt.detectSchemaUsed ? (
+                  <>
+                    {" "}
+                    · Schema: <code>{data.enkrypt.detectSchemaUsed}</code>
+                  </>
+                ) : null}
+              </p>
+              {data.enkrypt.lastDetectError ? (
+                <p className="mt-1 text-xs text-amber-700">
+                  Last detect error: {data.enkrypt.lastDetectError}
+                </p>
+              ) : null}
               {data.enkrypt.error ? (
                 <p className="mt-1 text-xs text-amber-700">Error: {data.enkrypt.error}</p>
               ) : null}

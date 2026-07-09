@@ -46,7 +46,7 @@ export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(a
   lastVigilanceRun = lastVigilanceRun ?? latestLocalVigilanceRun();
 
   const qdrantPrimary = qdrantConfigured() && qd.reachable === true;
-  const enkryptPrimary = enkryptConfigured() && en.reachable === true;
+  const enkryptPrimary = enkryptConfigured() && en.detectPayloadValid === true;
   const localMemoryAvailable = true;
   const memoryProvider = qdrantPrimary
     ? "qdrant"
@@ -104,8 +104,10 @@ export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(a
             ? "configured-unreachable"
             : "not-configured",
       enkrypt:
-        en.reachable === true
+        en.detectPayloadValid === true
           ? "live-connected"
+          : en.healthConnected === true
+            ? "health-connected-detect-invalid"
           : enkryptConfigured()
             ? "configured-unreachable"
             : "not-configured",

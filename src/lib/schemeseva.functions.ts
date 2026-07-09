@@ -586,6 +586,14 @@ export const runVigilance = createServerFn({ method: "POST" })
           const alertReason = r.reasons[0] ?? "Matches your saved profile.";
           const safety = await validateAlert(
             `${scheme.schemeName}: ${alertReason} Urgency: ${r.confidence === "high" ? "high" : "medium"}.`,
+            JSON.stringify({
+              id: scheme.id,
+              name: scheme.schemeName,
+              benefit: scheme.benefitAmount,
+              source: scheme.sourceUrl,
+              verified: scheme.lastVerified,
+              reason: alertReason,
+            }),
           );
           if (safety.status !== "safe") continue;
           let alertId = `local-${Date.now()}`;
