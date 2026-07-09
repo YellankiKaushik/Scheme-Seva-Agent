@@ -14,6 +14,7 @@ export interface SafetyReport {
   note: string;
   validated: boolean;
   issues: string[];
+  fallbackReason?: string;
   warning?: string;
   schemaUsed?: string;
   rawStatus?: string;
@@ -80,6 +81,7 @@ export async function validateReport(
       note: "No safety provider configured.",
       validated: true,
       issues: [],
+      fallbackReason: "ENKRYPT_API_KEY is missing and OpenRouter fallback is unavailable.",
       rawStatus: "no-provider",
     };
   }
@@ -116,6 +118,7 @@ export async function validateReport(
         output.hasBias ? "bias" : null,
         output.hasToxicity ? "toxicity" : null,
       ].filter(Boolean) as string[],
+      fallbackReason: enkryptFallbackWarning ?? undefined,
       warning: output.safe ? enkryptFallbackWarning ?? undefined : output.note,
       rawStatus: output.safe ? "safe" : "flagged",
     };
@@ -126,6 +129,7 @@ export async function validateReport(
       note: enkryptFallbackWarning ?? "Validator unavailable.",
       validated: false,
       issues: [],
+      fallbackReason: enkryptFallbackWarning ?? "Validator unavailable.",
       warning: enkryptFallbackWarning ?? "Validator unavailable.",
       rawStatus: "unavailable",
     };
@@ -133,8 +137,61 @@ export async function validateReport(
 }
 
 export async function validateAlert(alertText: string, sourceContext?: string): Promise<SafetyReport> {
-  return validateReport(
-    alertText,
-    sourceContext ?? "Vigilance alert about a newly launched scheme.",
-  );
+  const context = sourceContext ?? "Vigilance alert about a newly launched scheme.";
+  let enkryptFallbackWarning: string | null = null;
+
+  if (enkryptConfigured()) {
+    try {
+      const r = await detectText(alertText, context);
+      const flaggedDetections = r.detections.filter((d) => d.detected);
+      const flagged = flaggedDetections.map((d) => d.detector);
+      const onlyGenericPii =
+        flaggedDetections.length > 0 &&
+        flaggedDetections.every((d) =>
+          /pii|privacy|aadhaar|aadhar|bank|document/i.test(`${d.detector} ${d.detail ?? ""}`),
+        );
+      const warning = onlyGenericPii
+        ? "Checked by Enkrypt AI Guardrails. Generic document terms were treated as metadata."
+        : undefined;
+      return {
+        status: r.safe || onlyGenericPii ? "safe" : "warning",
+        provider: "enkrypt",
+        note: r.safe
+          ? `Validated by Enkrypt AI Guardrails${r.detectSchemaUsed ? ` (${r.detectSchemaUsed})` : ""}.`
+          : onlyGenericPii
+            ? warning!
+            : `Enkrypt AI flagged: ${flagged.join(", ") || "unspecified"}${r.detectSchemaUsed ? ` (${r.detectSchemaUsed})` : ""}.`,
+        validated: true,
+        issues: flagged,
+        warning,
+        schemaUsed: r.detectSchemaUsed,
+        rawStatus: r.safe ? "safe" : "flagged",
+        detections: r.detections,
+      };
+    } catch (e) {
+      enkryptFallbackWarning = `Enkrypt validation failed; used fallback safety validator. ${(e as Error).message}`;
+    }
+  }
+
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) {
+    return {
+      status: "safe",
+      provider: "passthrough",
+      note: "No safety provider configured.",
+      validated: true,
+      issues: [],
+      fallbackReason: enkryptFallbackWarning ?? "ENKRYPT_API_KEY is missing.",
+      rawStatus: "no-provider",
+    };
+  }
+
+  const fallback = await validateReport(alertText.padEnd(80, " "), context);
+  return {
+    ...fallback,
+    fallbackReason:
+      enkryptFallbackWarning ??
+      fallback.fallbackReason ??
+      "Alert used fallback safety validation instead of Enkrypt.",
+  };
 }

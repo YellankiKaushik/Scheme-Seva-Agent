@@ -7,7 +7,9 @@ import { qdrantConfig, qdrantConfigured } from "./qdrant";
 import type { CitizenProfile, EligibilityResult } from "./schemeseva-types";
 
 const SESSIONS_COLLECTION =
-  process.env.QDRANT_SESSIONS_COLLECTION ?? process.env.QDRANT_MEMORY_COLLECTION ?? "citizen_sessions";
+  process.env.QDRANT_SESSIONS_COLLECTION ??
+  process.env.QDRANT_MEMORY_COLLECTION ??
+  "citizen_sessions";
 
 const ALERTS_COLLECTION = process.env.QDRANT_ALERTS_COLLECTION ?? "pending_alerts";
 const VECTOR_SIZE = parseInt(process.env.QDRANT_VECTOR_SIZE ?? "768", 10);
@@ -20,6 +22,13 @@ export interface SessionMemoryResult {
   provider: "qdrant" | "local";
   memoryWrite: MemoryWriteStatus;
   reason?: string;
+}
+
+export interface SessionMemoryRecord {
+  profile: CitizenProfile;
+  foundSchemes: EligibilityResult[];
+  provider: "qdrant";
+  collection: string;
 }
 
 function hashToInt(s: string): number {
@@ -96,6 +105,46 @@ async function upsertPoint(collection: string, id: number, vector: number[], pay
     throw new Error(`Qdrant memory ${res.status}: ${body.slice(0, 160)}`);
   }
   return true;
+}
+
+export async function loadRememberedSession(
+  sessionKey: string,
+): Promise<SessionMemoryRecord | null> {
+  if (!qdrantConfigured()) return null;
+  const cfg = qdrantConfig();
+  try {
+    const res = await fetch(
+      `${cfg.url!.replace(/\/$/, "")}/collections/${SESSIONS_COLLECTION}/points/${hashToInt(
+        sessionKey,
+      )}`,
+      {
+        method: "GET",
+        headers: { "Content-Type": "application/json", "api-key": cfg.apiKey! },
+      },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      result?: { payload?: Record<string, unknown> } | null;
+    };
+    const payload = json.result?.payload;
+    if (!payload) return null;
+    const profile = payload?.profile as CitizenProfile | undefined;
+    if (!profile) return null;
+    return {
+      profile,
+      foundSchemes:
+        ((payload.foundSchemes ?? payload.found_schemes) as EligibilityResult[] | undefined) ?? [],
+      provider: "qdrant",
+      collection: SESSIONS_COLLECTION,
+    };
+  } catch (e) {
+    devLog("loadRememberedSession failed", {
+      collection: SESSIONS_COLLECTION,
+      sessionId: maskSessionId(sessionKey),
+      reason: (e as Error).message,
+    });
+    return null;
+  }
 }
 
 export async function rememberSession(
@@ -188,13 +237,30 @@ export async function rememberAlert(alert: {
   schemeName: string;
   reason: string;
   urgency: string;
+  safetyProvider: string;
+  retrievalProvider: string;
 }) {
   if (!qdrantConfigured()) return { stored: false, reason: "qdrant-not-configured" };
   try {
     const vector = deterministicVector(`${alert.schemeName} ${alert.reason} ${alert.urgency}`);
+    const createdAt = new Date().toISOString();
     const ok = await upsertPoint(ALERTS_COLLECTION, hashToInt(alert.id), vector, {
-      ...alert,
-      created_at: new Date().toISOString(),
+      alertId: alert.id,
+      alert_id: alert.id,
+      sessionId: alert.sessionKey,
+      session_id: alert.sessionKey,
+      schemeId: alert.schemeId,
+      scheme_id: alert.schemeId,
+      schemeName: alert.schemeName,
+      scheme_name: alert.schemeName,
+      reason: alert.reason,
+      urgency: alert.urgency,
+      safetyProvider: alert.safetyProvider,
+      safety_provider: alert.safetyProvider,
+      retrievalProvider: alert.retrievalProvider,
+      retrieval_provider: alert.retrievalProvider,
+      createdAt,
+      created_at: createdAt,
     });
     return { stored: ok, collection: ALERTS_COLLECTION };
   } catch (e) {
