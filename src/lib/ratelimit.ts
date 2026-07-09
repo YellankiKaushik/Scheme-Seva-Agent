@@ -51,8 +51,9 @@ export const upstashConfigured = isUpstashConfigured;
 function upstashHost() {
   const raw = process.env.UPSTASH_REDIS_REST_URL;
   if (!raw) return undefined;
+  const normalized = raw.trim().replace(/^(['"])(.*)\1$/, "$2").trim();
   try {
-    return new URL(raw).host;
+    return new URL(normalized).hostname;
   } catch {
     return "configured-url-invalid";
   }

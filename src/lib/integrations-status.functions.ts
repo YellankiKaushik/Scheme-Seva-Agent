@@ -32,6 +32,17 @@ function hostOnly(value?: string | null) {
   }
 }
 
+function upstashHostOnly(value?: string | null) {
+  if (!value) return value ?? null;
+  if (value === "configured-url-invalid") return value;
+  const normalized = value.trim().replace(/^(['"])(.*)\1$/, "$2").trim();
+  try {
+    return new URL(normalized).hostname;
+  } catch {
+    return normalized.includes(".") && !normalized.includes("/") ? normalized : "configured-url-invalid";
+  }
+}
+
 function timeoutError(provider: string, timeoutMs: number) {
   return `${provider} status timed out after ${timeoutMs}ms.`;
 }
@@ -111,15 +122,19 @@ function upstashFallback(error: string): RateLimitStatus {
     rateLimiting: "noop",
     discoveryLimit: "10/min",
     vigilanceLimit: "3/min",
-    host: hostOnly(process.env.UPSTASH_REDIS_REST_URL) ?? undefined,
+    host: upstashHostOnly(process.env.UPSTASH_REDIS_REST_URL) ?? undefined,
     error,
   };
 }
 
 function normalizeUpstash(status: RateLimitStatus): RateLimitStatus {
+  const host = upstashHostOnly(status.host);
   return {
     ...status,
-    host: hostOnly(status.host) ?? undefined,
+    host:
+      host === "configured-url-invalid" && status.connected === true
+        ? "configured"
+        : (host ?? undefined),
     error: status.error ? sanitizeMessage(status.error) : undefined,
   };
 }
