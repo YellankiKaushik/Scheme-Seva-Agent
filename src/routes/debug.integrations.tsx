@@ -31,11 +31,31 @@ function Pill({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
+function clientTimeout<T>(task: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    task,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`Integration status request timed out after ${timeoutMs}ms.`)),
+        timeoutMs,
+      );
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Integration status request failed.";
+}
+
 function IntegrationsPage() {
   const fetchStatus = useServerFn(getIntegrationsStatus);
-  const { data, isLoading, refetch, isFetching } = useQuery({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["integrations-status"],
-    queryFn: () => fetchStatus(),
+    queryFn: () => clientTimeout(fetchStatus(), 9000),
+    retry: false,
   });
 
   return (
@@ -59,8 +79,21 @@ function IntegrationsPage() {
           </button>
         </div>
 
-        {isLoading || !data ? (
+        {isLoading && !data ? (
           <p className="mt-8 text-muted-foreground">Loading status…</p>
+        ) : isError || !data ? (
+          <section className="mt-8 rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+            <h2 className="font-display text-lg font-semibold text-amber-900">
+              Unable to load integration status
+            </h2>
+            <p className="mt-2 text-sm text-amber-800">{errorMessage(error)}</p>
+            <button
+              onClick={() => refetch()}
+              className="mt-4 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+            >
+              Retry
+            </button>
+          </section>
         ) : (
           <div className="mt-8 space-y-4">
             <Card
