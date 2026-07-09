@@ -302,6 +302,45 @@ function IntegrationsPage() {
                 </p>
               ) : null}
             </Card>
+
+            <Card
+              title="Upstash Redis rate limiting"
+              primary={data.upstash.rateLimiting === "active"}
+              badges={[
+                <Pill
+                  key="c"
+                  ok={data.upstash.credentialsSet}
+                  label={data.upstash.credentialsSet ? "credentials set" : "credentials missing"}
+                />,
+                <Pill
+                  key="r"
+                  ok={data.upstash.connected === true}
+                  label={
+                    data.upstash.connected === true
+                      ? "connected"
+                      : data.upstash.configured
+                        ? "unreachable"
+                        : "noop fallback"
+                  }
+                />,
+                <Pill
+                  key="m"
+                  ok={data.upstash.rateLimiting === "active"}
+                  label={`rate limiting: ${data.upstash.rateLimiting}`}
+                />,
+              ]}
+            >
+              <p className="text-sm text-muted-foreground">
+                Discovery limit: <code>{data.upstash.discoveryLimit}</code> Â· Vigilance limit:{" "}
+                <code>{data.upstash.vigilanceLimit}</code>
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Store: <code>{data.upstash.host ?? "not configured"}</code>
+              </p>
+              {data.upstash.error ? (
+                <p className="mt-1 text-xs text-amber-700">Status: {data.upstash.error}</p>
+              ) : null}
+            </Card>
           </div>
         )}
       </main>

@@ -8,7 +8,11 @@ import { embeddingsConfigured, embeddingsProvider } from "./embeddings";
 import { latestLocalDiscoveryRun, latestLocalVigilanceRun } from "./localSessionStore";
 
 export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(async () => {
-  const [qd, en] = await Promise.all([qdrantStatus(), enkryptStatus()]);
+  const [qd, en, upstash] = await Promise.all([
+    qdrantStatus(),
+    enkryptStatus(),
+    upstashStatus(),
+  ]);
 
   let supabase: { configured: boolean; reachable: boolean; error?: string } = {
     configured: Boolean(process.env.SUPABASE_URL),
@@ -79,7 +83,7 @@ export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(a
       embeddingsConfigured: embeddingsConfigured(),
     },
     langfuse: langfuseStatus(),
-    upstash: upstashStatus(),
+    upstash,
     demoMode: process.env.NEXT_PUBLIC_DEMO_MODE === "true" || process.env.VITE_DEMO_MODE === "true",
     currentRetrievalProvider: qdrantPrimary
       ? embeddingsConfigured()
@@ -118,7 +122,12 @@ export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(a
           : "not-configured",
       gemini: embeddingsConfigured() ? "configured-by-env" : "not-configured",
       langfuse: langfuseStatus().configured ? "configured-by-env" : "not-configured",
-      upstash: upstashStatus().configured ? "configured-by-env" : "not-configured",
+      upstash:
+        upstash.rateLimiting === "active"
+          ? "live-connected"
+          : upstash.configured
+            ? "configured-unreachable"
+            : "not-configured",
     },
     lastCheckedAt: new Date().toISOString(),
   };
