@@ -285,10 +285,20 @@ function AgentApp() {
       schemeName: string;
       reason: string;
       urgency: string;
+      safetyProvider?: string;
       validationProvider?: string;
       retrievalProvider?: string;
       memoryProvider?: string;
+      memoryWrite?: string;
     }>;
+    diagnostics?: {
+      sessionProvider: string;
+      qdrantConfigured: boolean;
+      scannedCandidates: number;
+      alertStorage: "stored" | "skipped" | "failed";
+      alertStorageReason: string;
+      fallbackReason?: string;
+    };
   } | null>(null);
   const [vigilanceLoading, setVigilanceLoading] = useState(false);
   const [vigilanceError, setVigilanceError] = useState<string | null>(null);
@@ -662,31 +672,30 @@ function AgentApp() {
               {vigilance && (
                 <div className="mt-4">
                   {vigilance.newMatches === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No new matching schemes right now. The agent will keep watching.
-                    </p>
-                  ) : (
-                    vigilance.alerts.map((alert) => (
-                      <div
-                        key={alert.id}
-                        className="rounded-lg border border-accent/40 bg-card p-4"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold uppercase text-accent-foreground">
-                            {alert.urgency} urgency
-                          </span>
-                          <h4 className="font-display font-semibold text-primary">
-                            {alert.schemeName}
-                          </h4>
-                        </div>
-                        <p className="mt-1 text-sm text-muted-foreground">{alert.reason}</p>
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Safety: {alert.validationProvider ?? "fallback"} - Retrieval:{" "}
-                          {alert.retrievalProvider ?? "session memory"} - Memory:{" "}
-                          {alert.memoryProvider ?? "fallback"}
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">
+                        No new matching schemes right now. The agent will keep watching.
+                      </p>
+                      {vigilance.diagnostics ? (
+                        <p className="text-xs text-muted-foreground">
+                          Diagnostics: scanned {vigilance.diagnostics.scannedCandidates} candidate
+                          schemes via {vigilance.diagnostics.sessionProvider}; alert storage{" "}
+                          {vigilance.diagnostics.alertStorage} (
+                          {vigilance.diagnostics.alertStorageReason}).
                         </p>
-                      </div>
-                    ))
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {vigilance.alerts.map((alert) => (
+                        <AlertBanner key={alert.id} alert={alert} />
+                      ))}
+                      {vigilance.diagnostics?.fallbackReason ? (
+                        <p className="text-xs text-muted-foreground">
+                          Safety fallback: {vigilance.diagnostics.fallbackReason}
+                        </p>
+                      ) : null}
+                    </div>
                   )}
                 </div>
               )}
@@ -1026,6 +1035,37 @@ function StatusPill({ label }: { label: string }) {
     <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold text-primary">
       {label}
     </span>
+  );
+}
+
+function AlertBanner({
+  alert,
+}: {
+  alert: {
+    schemeName: string;
+    reason: string;
+    urgency: string;
+    safetyProvider?: string;
+    validationProvider?: string;
+    retrievalProvider?: string;
+    memoryProvider?: string;
+    memoryWrite?: string;
+  };
+}) {
+  return (
+    <div className="rounded-lg border border-accent/40 bg-card p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold uppercase text-accent-foreground">
+          {alert.urgency} urgency
+        </span>
+        <h4 className="font-display font-semibold text-primary">{alert.schemeName}</h4>
+      </div>
+      <p className="mt-1 text-sm text-muted-foreground">{alert.reason}</p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Safety: {alert.safetyProvider ?? alert.validationProvider ?? "fallback"} - Retrieval:{" "}
+        {alert.retrievalProvider ?? "session memory"} - Memory: {alert.memoryProvider ?? "fallback"}
+      </p>
+    </div>
   );
 }
 

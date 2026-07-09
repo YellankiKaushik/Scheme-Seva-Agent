@@ -12,7 +12,7 @@ import type {
 import { checkEligibility, discoverCandidates } from "./schemeseva-eligibility";
 import { searchSchemes } from "./qdrantSearch";
 import { validateAlert, validateReport } from "./safetyValidator";
-import { rememberSession, rememberAlert } from "./qdrantMemory";
+import { rememberSession, rememberAlert, loadRememberedSession } from "./qdrantMemory";
 import {
   checkDiscoveryRateLimit,
   checkVigilanceRateLimit,
@@ -39,6 +39,10 @@ function getGateway() {
 
 function supabaseServerConfigured() {
   return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function demoModeEnabled() {
+  return process.env.NEXT_PUBLIC_DEMO_MODE === "true" || process.env.VITE_DEMO_MODE === "true";
 }
 
 function mapSchemeRow(row: Record<string, unknown>): Scheme {
@@ -356,7 +360,9 @@ export const runDiscovery = createServerFn({ method: "POST" })
     let ip = "anon";
     try {
       ip = getRequestIP({ xForwardedFor: true }) ?? "anon";
-    } catch {}
+    } catch {
+      // getRequestIP is unavailable outside request-bound server execution.
+    }
     const rl = await checkDiscoveryRateLimit(rateLimitIdentity(data.sessionKey, ip));
     if (!rl.allowed) {
       throw new Error("Too many requests. Please wait a moment before trying again.");
@@ -623,18 +629,30 @@ export const runVigilance = createServerFn({ method: "POST" })
         schemeName: string;
         reason: string;
         urgency: string;
+        safetyProvider: string;
         validationProvider: string;
         retrievalProvider: string;
         memoryProvider: string;
+        memoryWrite: "success" | "failed" | "skipped-local";
       }>;
       workflowMode: "adapter";
       agentSteps: VigilanceAgentSteps;
+      diagnostics: {
+        sessionProvider: string;
+        qdrantConfigured: boolean;
+        scannedCandidates: number;
+        alertStorage: "stored" | "skipped" | "failed";
+        alertStorageReason: string;
+        fallbackReason?: string;
+      };
     }> => {
       // Rate limit: 3 vigilance simulate requests / minute / IP
       let ip = "anon";
       try {
         ip = getRequestIP({ xForwardedFor: true }) ?? "anon";
-      } catch {}
+      } catch {
+        // getRequestIP is unavailable outside request-bound server execution.
+      }
       const rl = await checkVigilanceRateLimit(rateLimitIdentity(data.sessionKey, ip));
       if (!rl.allowed) {
         throw new Error("Too many requests. Please wait a moment before trying again.");
@@ -646,7 +664,11 @@ export const runVigilance = createServerFn({ method: "POST" })
       const sessionSpan = trace.span("Session scan", {
         supabaseConfigured: supabaseServerConfigured(),
       });
-      let sess: { profile: CitizenProfile; found_schemes: EligibilityResult[] } | null = null;
+      let sess: {
+        profile: CitizenProfile;
+        found_schemes: EligibilityResult[];
+        provider: string;
+      } | null = null;
       if (supabaseServerConfigured()) {
         try {
           const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -660,6 +682,7 @@ export const runVigilance = createServerFn({ method: "POST" })
               profile: supabaseSession.profile as unknown as CitizenProfile,
               found_schemes:
                 (supabaseSession.found_schemes as unknown as EligibilityResult[]) ?? [],
+              provider: "supabase",
             };
           }
         } catch {
@@ -667,10 +690,26 @@ export const runVigilance = createServerFn({ method: "POST" })
         }
       }
       if (!sess) {
-        const local = getLocalSession(data.sessionKey);
-        if (local) sess = { profile: local.profile, found_schemes: local.foundSchemes };
+        const qdrantSession = await loadRememberedSession(data.sessionKey);
+        if (qdrantSession) {
+          sess = {
+            profile: qdrantSession.profile,
+            found_schemes: qdrantSession.foundSchemes,
+            provider: qdrantSession.provider,
+          };
+        }
       }
-      sessionSpan.end({ found: Boolean(sess), provider: sess ? "supabase-or-local" : "none" });
+      if (!sess) {
+        const local = getLocalSession(data.sessionKey);
+        if (local) {
+          sess = {
+            profile: local.profile,
+            found_schemes: local.foundSchemes,
+            provider: "local",
+          };
+        }
+      }
+      sessionSpan.end({ found: Boolean(sess), provider: sess?.provider ?? "none" });
       if (!sess) {
         const agentSteps: VigilanceAgentSteps = {
           vigilanceAgent: completed("mastra-adapter", "No saved session found."),
@@ -680,7 +719,20 @@ export const runVigilance = createServerFn({ method: "POST" })
         };
         await trace.end({ scanned: 0 });
         await flushObservability();
-        return { scanned: 0, newMatches: 0, alerts: [], workflowMode: "adapter", agentSteps };
+        return {
+          scanned: 0,
+          newMatches: 0,
+          alerts: [],
+          workflowMode: "adapter",
+          agentSteps,
+          diagnostics: {
+            sessionProvider: "none",
+            qdrantConfigured: qdrantConfigured(),
+            scannedCandidates: 0,
+            alertStorage: "skipped",
+            alertStorageReason: "No saved session found.",
+          },
+        };
       }
 
       const profile = sess.profile as unknown as CitizenProfile;
@@ -692,9 +744,17 @@ export const runVigilance = createServerFn({ method: "POST" })
         foundSchemes: foundList.length,
       });
       const all = await loadSchemes();
-      const candidates = discoverCandidates(all, profile, 30).filter(
+      let candidates = discoverCandidates(all, profile, 30).filter(
         (s) => !alreadyFound.has(s.id),
       );
+      if (demoModeEnabled() && profile.occupation?.toLowerCase().includes("farmer")) {
+        const demoScheme =
+          all.find((scheme) => scheme.id === "pm-kusum-004") ??
+          all.find((scheme) => scheme.id === "soil-health-card-005");
+        if (demoScheme && !candidates.some((scheme) => scheme.id === demoScheme.id)) {
+          candidates = [demoScheme, ...candidates];
+        }
+      }
       schemeScanSpan.end({ catalogSize: all.length, unseenCandidates: candidates.length });
 
       const alerts: Array<{
@@ -703,10 +763,26 @@ export const runVigilance = createServerFn({ method: "POST" })
         schemeName: string;
         reason: string;
         urgency: string;
+        safetyProvider: string;
         validationProvider: string;
         retrievalProvider: string;
         memoryProvider: string;
+        memoryWrite: "success" | "failed" | "skipped-local";
       }> = [];
+      const diagnostics: {
+        sessionProvider: string;
+        qdrantConfigured: boolean;
+        scannedCandidates: number;
+        alertStorage: "stored" | "skipped" | "failed";
+        alertStorageReason: string;
+        fallbackReason?: string;
+      } = {
+        sessionProvider: sess.provider,
+        qdrantConfigured: qdrantConfigured(),
+        scannedCandidates: candidates.length,
+        alertStorage: "skipped",
+        alertStorageReason: "No validated alert generated.",
+      };
 
       const eligibilityScanSpan = trace.span("Eligibility checks", {
         candidates: Math.min(candidates.length, 5),
@@ -734,10 +810,11 @@ export const runVigilance = createServerFn({ method: "POST" })
           alertValidationSpan.end({
             safetyProvider: safety.provider,
             safetyStatus: safety.status,
+            fallbackReason: safety.fallbackReason,
           });
           if (safety.status !== "safe") continue;
           let alertId = `local-${Date.now()}`;
-          let memoryProvider = "local+qdrant-pending_alerts";
+          let memoryProvider = "local";
           const pendingAlertSpan = trace.span("Pending alert write", {
             schemeId: scheme.id,
             safetyProvider: safety.provider,
@@ -758,10 +835,10 @@ export const runVigilance = createServerFn({ method: "POST" })
                 .single();
               if (inserted?.id) {
                 alertId = inserted.id as string;
-                memoryProvider = "supabase+qdrant-pending_alerts";
+                memoryProvider = "supabase";
               }
             } catch {
-              memoryProvider = "local+qdrant-pending_alerts";
+              memoryProvider = "local";
             }
           }
           const alert = {
@@ -770,14 +847,32 @@ export const runVigilance = createServerFn({ method: "POST" })
             schemeName: scheme.schemeName,
             reason: alertReason,
             urgency: r.confidence === "high" ? "high" : "medium",
+            safetyProvider: safety.provider,
             validationProvider: safety.provider,
             retrievalProvider: "saved-session+scheme-catalog",
             memoryProvider,
+            memoryWrite: "skipped-local" as "success" | "failed" | "skipped-local",
           };
+          if (safety.fallbackReason) diagnostics.fallbackReason = safety.fallbackReason;
+          const qdrantAlert = await rememberAlert({ ...alert, sessionKey: data.sessionKey });
+          if (qdrantAlert.stored) {
+            alert.memoryProvider = `${memoryProvider}+qdrant-pending_alerts`;
+            alert.memoryWrite = "success";
+            diagnostics.alertStorage = "stored";
+            diagnostics.alertStorageReason = `Stored in ${qdrantAlert.collection ?? "pending_alerts"}.`;
+          } else {
+            diagnostics.alertStorage = qdrantConfigured() ? "failed" : "skipped";
+            alert.memoryWrite = qdrantConfigured() ? "failed" : "skipped-local";
+            diagnostics.alertStorageReason =
+              qdrantAlert.reason ?? "Qdrant is not configured for pending_alerts.";
+          }
           alerts.push(alert);
           saveLocalAlert({ ...alert, sessionKey: data.sessionKey });
-          await rememberAlert({ ...alert, sessionKey: data.sessionKey });
-          pendingAlertSpan.end({ memoryProvider });
+          pendingAlertSpan.end({
+            memoryProvider: alert.memoryProvider,
+            alertStorage: diagnostics.alertStorage,
+            alertStorageReason: diagnostics.alertStorageReason,
+          });
           if (alerts.length >= 1) break; // Return one fresh alert per simulate click
         }
       }
@@ -809,6 +904,7 @@ export const runVigilance = createServerFn({ method: "POST" })
         alerts,
         workflowMode: "adapter",
         agentSteps,
+        diagnostics,
       };
       } catch (e) {
         await trace.end({ success: false }, e);

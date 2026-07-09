@@ -331,7 +331,7 @@ function IntegrationsPage() {
               ]}
             >
               <p className="text-sm text-muted-foreground">
-                Discovery limit: <code>{data.upstash.discoveryLimit}</code> Â· Vigilance limit:{" "}
+                Discovery limit: <code>{data.upstash.discoveryLimit}</code> | Vigilance limit:{" "}
                 <code>{data.upstash.vigilanceLimit}</code>
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
