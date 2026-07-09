@@ -78,7 +78,7 @@ const features = [
   ["Source-grounded reports", "Every result keeps sourceUrl and lastVerified visible."],
   [
     "Privacy-conscious handling",
-    "The demo uses a session key and does not collect Aadhaar IDs or bank details.",
+    "The demo uses a session key and does not collect Aadhaar numbers or bank account numbers.",
   ],
   ["Transparent debug page", "Judges can inspect integration status without exposing secrets."],
 ];
@@ -154,6 +154,14 @@ function LandingPage() {
                   <FileSearch className="h-4 w-4" />
                   View 28 schemes
                 </Link>
+                <Link to="/debug/integrations" className="ss-btn-secondary">
+                  <Bell className="h-4 w-4" />
+                  Check integrations
+                </Link>
+                <Link to="/architecture" className="ss-btn-secondary">
+                  <Layers3 className="h-4 w-4" />
+                  View architecture
+                </Link>
               </div>
               <p className="mt-4 text-sm font-medium text-muted-foreground">
                 No sign-up required for the demo. Reports are guidance, not government approval.
@@ -182,7 +190,7 @@ function LandingPage() {
                 />
                 <Fact
                   label="Not collected"
-                  value="Aadhaar IDs, bank details, passwords, or uploads"
+                  value="Aadhaar numbers, bank account numbers, passwords, or uploads"
                 />
                 <Fact
                   label="Output"
@@ -210,7 +218,7 @@ function LandingPage() {
         <Section
           eyebrow="The agent"
           title="SchemeSeva puts the agent workflow at the center."
-          description="Instead of only searching text, the app runs a structured workflow that gathers profile facts, retrieves schemes, checks rules, writes a simple report, and validates the output before display."
+          description="This is not just a chatbot. The app runs a structured workflow that gathers profile facts, retrieves schemes, remembers context, checks rules, writes a simple report, validates output, and lets Vigilance act on new matches."
           muted
         >
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -282,7 +290,7 @@ function LandingPage() {
             <TrustCard
               icon={<LockKeyhole className="h-5 w-5" />}
               title="Privacy-conscious demo"
-              body="No Aadhaar IDs or bank details are collected. Source links and last verified dates stay visible."
+              body="No Aadhaar numbers or bank account numbers are collected. Source links and last verified dates stay visible."
             />
           </div>
         </Section>

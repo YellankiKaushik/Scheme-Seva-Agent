@@ -108,6 +108,15 @@ const pipeline = [
   ["6", "Vigilance", "Watch for new matches"],
 ];
 
+const judgeChecks = [
+  ["Mastra", "Look for workflow mode adapter and the five typed agents in this page."],
+  ["Qdrant retrieval", "Run the Farmer demo and confirm Retrieval: qdrant-vector."],
+  ["Qdrant memory", "Confirm Memory: qdrant and Memory write: success after a report."],
+  ["Enkrypt AI", "Confirm Safety: enkrypt on reports and Vigilance alerts."],
+  ["Collections", "schemeseva_schemes, citizen_sessions, and pending_alerts."],
+  ["Debug proof", "Open /debug/integrations for live provider status without secrets."],
+];
+
 function ArchitecturePage() {
   return (
     <div className="min-h-screen bg-background">
@@ -132,6 +141,18 @@ function ArchitecturePage() {
             <Link to="/debug/integrations" className="ss-btn-secondary">
               Check integrations
             </Link>
+          </div>
+        </section>
+
+        <section className="mt-12 rounded-lg border border-accent/35 bg-accent/5 p-6 shadow-sm">
+          <SectionHeader eyebrow="Judge verification" title="How to verify the mandatory stack" />
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {judgeChecks.map(([title, body]) => (
+              <article key={title} className="rounded-lg border border-border bg-card p-4">
+                <h3 className="font-display text-base font-semibold text-primary">{title}</h3>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{body}</p>
+              </article>
+            ))}
           </div>
         </section>
 

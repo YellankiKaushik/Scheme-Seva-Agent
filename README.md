@@ -1,42 +1,205 @@
 # SchemeSeva
 
-SchemeSeva is an independent TypeScript civic AI agent for discovering Indian government schemes a citizen is **likely eligible** for. It uses a five-agent workflow: profile extraction, scheme discovery, deterministic eligibility, grounded report generation, and proactive vigilance alerts.
+**Find government schemes you may likely qualify for - and get alerted when new matches appear.**
 
-The app can run locally in demo mode with a built-in verified fallback catalog. External services improve retrieval, safety, observability, and persistence, but they are not required for the basic demo flow. The submitted MVP target is 25-30 verified Central + Telangana schemes; the local fallback catalog and Qdrant seed path now use the same 28 representative verified schemes.
+SchemeSeva is an independent civic AI agent for discovering Indian government schemes, explaining likely eligibility in simple language, and proactively watching for new matching opportunities.
 
-## Stack
+- **Live Demo:** https://scheme-seva-agent.vercel.app/
+- **GitHub Repository:** https://github.com/YellankiKaushik/Scheme-Seva-Agent
+- **Judge Guide:** [JUDGES_GUIDE.md](./JUDGES_GUIDE.md)
 
-| Layer                | Primary                                     | Fallback                                              |
-| -------------------- | ------------------------------------------- | ----------------------------------------------------- |
-| Orchestration        | Mastra-style typed adapter in `src/mastra/` | Always active                                         |
-| Reasoning            | OpenRouter (`OPENROUTER_API_KEY`)           | Local grounded profile/report fallback                |
-| Embeddings           | Google Gemini (`GEMINI_API_KEY`)            | Keyword/attribute retrieval                           |
-| Retrieval + memory   | Qdrant (`QDRANT_URL`, `QDRANT_API_KEY`)     | Local static scheme catalog + in-memory session store |
-| Safety               | Enkrypt AI (`ENKRYPT_API_KEY`)              | OpenRouter validator or passthrough in demo mode      |
-| Observability        | Langfuse                                    | No-op tracer                                          |
-| Rate limiting        | Upstash Redis                               | Allow-all local fallback                              |
-| Optional persistence | Supabase                                    | Not required                                          |
+## One-Minute Overview
 
-## Run Locally
+SchemeSeva helps citizens find government welfare schemes without needing to know which portal, ministry, or keyword to search first. A user shares basic profile details, the agent searches a verified Central + Telangana scheme catalog, checks rules, validates the output, and returns a source-grounded report with documents, next steps, source URLs, and last verified dates.
+
+The differentiator is the **Vigilance Agent**. After the first discovery run, SchemeSeva can keep watch and alert the user when a new or unseen scheme appears that they may likely qualify for. That makes the project more than a chatbot: it retrieves, remembers, evaluates, reports, and acts.
+
+## Problem Statement
+
+Government scheme discovery is still hard for many citizens:
+
+- Schemes are fragmented across central, state, ministry, and department portals.
+- Eligibility rules are confusing and depend on age, income, location, category, occupation, documents, and special status.
+- Citizens often miss benefits because they do not know what to search for.
+- Existing portals are mostly reactive: the user must come back and search again.
+
+## Solution
+
+SchemeSeva provides a guided, source-grounded workflow:
+
+- **Guided citizen profile:** Collects basic eligibility signals without collecting Aadhaar numbers or bank account numbers.
+- **Source-grounded scheme discovery:** Searches a verified catalog of 28 Central + Telangana schemes.
+- **Likely eligibility report:** Uses "likely eligible" guidance, not final-decision language.
+- **Documents and next steps:** Shows what to prepare and where to continue.
+- **Vigilance Agent:** Watches for new matching opportunities and validates alerts before display.
+
+## Why This Is An AI Agent, Not A Chatbot
+
+SchemeSeva is not a single prompt wrapped in a chat UI. It has coordinated agent behavior:
+
+| Agent capability | SchemeSeva evidence                                                                    |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| Retrieves        | Qdrant vector retrieval searches verified schemes semantically.                        |
+| Remembers        | Qdrant session memory stores profile context by session key.                           |
+| Evaluates        | Eligibility rules are checked deterministically before reporting.                      |
+| Acts             | Vigilance Agent scans unseen schemes and creates proactive alerts.                     |
+| Coordinates      | Profile, Discovery, Eligibility, Report, and Vigilance agents run as a typed workflow. |
+
+## AI Workflow
+
+1. **Profile Agent** structures state, district, age, gender, category, occupation, income, landholding, document status, and special conditions.
+2. **Discovery Agent** retrieves candidate schemes from Qdrant vector search, with local keyword fallback for demo resilience.
+3. **Eligibility Agent** checks hard rules such as state scope, age, gender, category, income, occupation, landholding, Aadhaar status, bank account status, and BPL status.
+4. **Report Agent** produces a plain-language, source-grounded report with likely matches, reasons, documents, steps, source URLs, and last verified dates.
+5. **Vigilance Agent** scans saved session memory against unseen schemes and raises proactive alerts when a new likely match appears.
+
+## Mandatory Stack Integration
+
+### Mastra - Agent Orchestration Layer
+
+SchemeSeva exposes a Mastra-style architecture in `src/mastra/` with typed agents and workflows. Because the deployed runtime has constraints around running the full Mastra Node runtime, the app uses a **TypeScript workflow adapter** around SchemeSeva server functions.
+
+This adapter is intentionally honest:
+
+- Agents expose `run()` methods.
+- Workflows expose `run()` and typed steps.
+- The UI calls the workflow layer, not isolated one-off functions.
+- The debug page reports the workflow mode so judges can see whether the app is running through the adapter/fallback path.
+
+### Qdrant - Memory & Retrieval Layer
+
+Qdrant is used for both retrieval and memory:
+
+- **Scheme vector retrieval:** Semantic search over the verified scheme catalog.
+- **Persistent session memory:** Stores citizen profile context and previously seen schemes.
+- **Pending alert memory:** Stores or simulates proactive Vigilance alerts.
+
+Collections used:
+
+- `schemeseva_schemes`
+- `citizen_sessions`
+- `pending_alerts`
+
+The app remains runnable in local demo mode if Qdrant is unavailable, and the UI/debug page makes fallback status visible.
+
+### Enkrypt AI - Safety & Evaluation Layer
+
+Enkrypt AI validates citizen-facing outputs:
+
+- Discovery reports are checked before display.
+- Vigilance alerts are checked before display.
+- The app shows visible `Safety: enkrypt` badges when Enkrypt is active.
+- If Enkrypt is unavailable, fallback status remains honest instead of being hidden.
+
+### Supporting Stack
+
+- **OpenRouter reasoning:** Profile extraction and report generation.
+- **Gemini embeddings:** Embeddings for Qdrant semantic retrieval.
+- **Langfuse observability:** Tracing and integration status visibility.
+- **Upstash Redis rate limiting:** Discovery and Vigilance rate limiting.
+- **Vercel deployment:** Hosted live app.
+- **Supabase:** Optional fallback only; not required.
+
+## Demo Walkthrough For Judges
+
+1. Open the [Live Demo](https://scheme-seva-agent.vercel.app/).
+2. Read the homepage hero and workflow summary.
+3. Open `/schemes` and confirm **28 verified Central + Telangana schemes** with source URLs and last verified dates.
+4. Open `/debug/integrations` and confirm the provider cards for Mastra, Qdrant, Enkrypt AI, OpenRouter, Gemini, Langfuse, Upstash, and optional Supabase fallback.
+5. Open `/app`.
+6. Click the **Farmer** demo profile.
+7. Click **Find schemes**.
+8. Confirm the report status badges:
+   - `Retrieval: qdrant-vector`
+   - `Memory: qdrant`
+   - `Memory write: success`
+   - `Safety: enkrypt`
+   - `Workflow: adapter`
+9. Confirm report cards and markdown include `sourceUrl` and `lastVerified`.
+10. Click **Run vigilance scan**.
+11. Confirm the PM-KUSUM alert appears with `Safety: enkrypt`.
+
+## Evaluation Criteria Mapping
+
+| Hackathon criterion        | SchemeSeva evidence                                                                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Mastra Integration Depth   | Mastra-style typed workflow adapter with Profile, Discovery, Eligibility, Report, and Vigilance agents.                                   |
+| Qdrant Integration Quality | Scheme vector retrieval, session memory, and pending alert memory through `schemeseva_schemes`, `citizen_sessions`, and `pending_alerts`. |
+| Enkrypt AI Coverage        | Report validation and Vigilance alert validation before display, visible through safety badges.                                           |
+| Agent Output Quality       | Source-grounded report with likely eligibility language, document lists, next steps, source URLs, and last verified dates.                |
+| Problem Impact & Novelty   | Moves welfare discovery from reactive search to proactive watch-after-search alerts.                                                      |
+| Engineering Quality        | TypeScript, TanStack Start, typed server functions, deterministic eligibility rules, fallbacks, and smoke tests.                          |
+| User Experience            | Homepage, guided form, demo profiles, searchable catalog, report cards, and clear debug proof page.                                       |
+| Documentation              | README plus concise judge guide and in-app architecture/debug pages.                                                                      |
+| Live Demonstration         | Vercel deployment with `/app`, `/schemes`, `/architecture`, and `/debug/integrations`.                                                    |
+
+## Screenshots / Proof
+
+No screenshot files are currently committed in this repository.
+
+Recommended screenshots to add before final submission:
+
+- Homepage hero and workflow section
+- `/schemes` catalog showing 28 schemes
+- `/debug/integrations` provider cards
+- `/app` report with status badges
+- Vigilance alert showing PM-KUSUM and `Safety: enkrypt`
+
+## Setup Instructions
+
+Install dependencies:
 
 ```bash
 pnpm install
+```
+
+Configure environment variables:
+
+```bash
+cp .env.example .env
+```
+
+Seed/index Qdrant for the full provider-backed demo:
+
+```bash
+pnpm seed:qdrant
+```
+
+Run locally:
+
+```bash
 pnpm dev
 ```
 
-Copy `.env.example` to `.env` when enabling external providers. For the default local demo, `NEXT_PUBLIC_DEMO_MODE=true` is enough.
+Build:
 
-For the full judged demo, seed Qdrant with the 28-scheme verified dataset before presenting. Without Qdrant, SchemeSeva uses the same catalog through local keyword/attribute retrieval.
+```bash
+pnpm build
+```
+
+Run smoke tests:
+
+```bash
+pnpm run smoke:local
+```
 
 ## Environment Variables
 
-Primary:
+Names only are listed here. Do not commit secret values.
+
+### OpenRouter
 
 - `OPENROUTER_API_KEY`
 - `OPENROUTER_MODEL`
 - `SCHEMESEVA_SITE_URL`
+
+### Gemini
+
 - `GEMINI_API_KEY`
 - `GEMINI_EMBEDDING_MODEL`
+
+### Qdrant
+
 - `QDRANT_URL`
 - `QDRANT_API_KEY`
 - `QDRANT_COLLECTION`
@@ -44,18 +207,30 @@ Primary:
 - `QDRANT_SESSIONS_COLLECTION`
 - `QDRANT_ALERTS_COLLECTION`
 - `QDRANT_VECTOR_SIZE`
+
+### Enkrypt AI
+
 - `ENKRYPT_API_KEY`
 - `ENKRYPT_BASE_URL`
+
+### Langfuse
+
 - `LANGFUSE_PUBLIC_KEY`
 - `LANGFUSE_SECRET_KEY`
 - `LANGFUSE_HOST`
 - `LANGFUSE_BASE_URL`
+
+### Upstash Redis
+
 - `UPSTASH_REDIS_REST_URL`
 - `UPSTASH_REDIS_REST_TOKEN`
-- `NEXT_PUBLIC_DEMO_MODE=true`
-- `VITE_DEMO_MODE=true`
 
-Optional fallback only:
+### Demo Mode
+
+- `NEXT_PUBLIC_DEMO_MODE`
+- `VITE_DEMO_MODE`
+
+### Optional Supabase Fallback
 
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
@@ -64,69 +239,50 @@ Optional fallback only:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 
-## Mastra Five-Agent Workflow
-
-SchemeSeva exposes the submitted architecture through `src/mastra/`. The current build uses **adapter mode** because the deployment runtime is not a full Node Mastra runtime. The adapter is typed and verifiable: agents expose `run()`, workflows expose `run()` and `steps`, and callers route through those workflows.
-
-- **Profile Agent** extracts a Zod-validated `CitizenProfile` and asks one clarification if critical fields are missing.
-- **Discovery Agent** creates occupation, income, category, state, and special-status query angles, then uses Qdrant or local keyword fallback.
-- **Eligibility Agent** applies deterministic rules. Hard-failed schemes are excluded.
-- **Report Agent** writes plain-language guidance using “likely eligible,” official links, last verified dates, document lists, and confidence.
-- **Vigilance Agent** scans saved sessions against unseen schemes and returns proactive alerts after safety validation.
-
-## Verify
-
-- `/` homepage
-- `/app` five-agent discovery flow
-- `/schemes` browse catalog
-- `/architecture` stack and workflow explanation
-- `/debug/integrations` provider status
-
-Expected debug signals:
-
-- OpenRouter configured/missing
-- Gemini embeddings configured/missing
-- Qdrant connected/fallback
-- Enkrypt connected/fallback
-- Langfuse configured/missing
-- Upstash configured/missing
-- Supabase optional fallback configured/missing
-- Memory provider: qdrant / local / optional-supabase / unavailable
-- Demo mode on/off
-
-## Vercel Deployment
-
-This repository includes a minimal `vercel.json` for TanStack Start + Nitro:
-
-- Install command: `pnpm install --frozen-lockfile`
-- Build command: `pnpm build`
-- Nitro preset on Vercel: `NITRO_PRESET=vercel`
-
-Set the same environment variables from `.env.example` in the Vercel dashboard. Supabase variables remain optional fallback only. For full 25-30 scheme coverage, seed Qdrant using the production `QDRANT_URL`, `QDRANT_API_KEY`, and `GEMINI_API_KEY`.
-
-## Demo Script
-
-1. Open homepage.
-2. Click Try the Agent.
-3. Use the farmer demo.
-4. Watch the five-agent loader.
-5. Show the report.
-6. Point to retrieval and safety badges.
-7. Point to `sourceUrl` and `lastVerified`.
-8. Click Vigilance simulate.
-9. Show proactive alert.
-10. Say: “This is what myScheme does not do.”
-
 ## Verification Commands
 
 ```bash
-pnpm install
-pnpm exec tsc --noEmit
+pnpm typecheck
 pnpm build
+pnpm run smoke:local
+pnpm audit
+pnpm run lint
 ```
+
+`pnpm run lint` is useful as a report-only check in the current repository because existing formatting/lint debt may be unrelated to feature behavior.
+
+## Privacy And Safety
+
+- No Aadhaar number is collected.
+- No bank account number is collected.
+- Reports are guidance only, not a government decision.
+- Every result should be confirmed on official portals.
+- User-facing language uses "likely eligible" or "may likely qualify."
+- Source URLs and last verified dates remain visible.
+- Local, Qdrant, and Enkrypt fallback states are kept honest in badges/debug output.
+
+## Challenges Faced
+
+- **Mastra runtime constraints:** The app uses a Mastra-style TypeScript adapter around server functions instead of overclaiming a full runtime path.
+- **Qdrant vector memory design:** The system separates scheme retrieval, citizen session memory, and pending alert memory.
+- **Enkrypt response schema handling:** Validation needed resilient parsing and fallback behavior without hiding safety status.
+- **Careful eligibility language:** Reports had to stay helpful while avoiding final-decision or overconfident eligibility claims.
+- **Vercel runtime differences:** The deployment needed provider fallbacks and debug checks that work across local and hosted environments.
+- **Debug resilience:** `/debug/integrations` must show provider health without exposing secrets.
+
+## Future Improvements
+
+- Add more Indian states.
+- Expand the verified scheme catalog.
+- Add multilingual support.
+- Add WhatsApp/SMS alerts.
+- Build an NGO or field-worker dashboard.
+- Add human-in-the-loop verification.
+- Add assisted application workflows while keeping official portal confirmation.
 
 ## Security Notes
 
-- Do not commit `.env` or `.env.local`.
-- TanStack Start's CSRF middleware plus a same-origin guard are enabled for non-GET server requests. Production deployments can still add stronger CSRF/session hardening if user accounts or cookies are introduced.
-- SchemeSeva provides discovery guidance, not official eligibility approval.
+- Do not commit `.env`, `.env.local`, or secret values.
+- Supabase remains optional and is not required for the demo.
+- TanStack Start CSRF middleware and same-origin guards protect non-GET server requests.
+- Production user accounts would require stronger auth/session hardening.

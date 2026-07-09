@@ -77,6 +77,11 @@ function IntegrationsPage() {
                 Live check of the independent SchemeSeva stack and demo fallbacks. This page shows
                 whether providers are active without exposing secrets.
               </p>
+              <p className="mt-3 max-w-3xl text-xs font-semibold uppercase tracking-wide text-primary">
+                Judge proof: verify Mastra workflow mode, Qdrant retrieval and memory, Enkrypt
+                validation, OpenRouter reasoning, Gemini embeddings, Langfuse tracing, Upstash rate
+                limiting, and optional Supabase fallback.
+              </p>
             </div>
             <button
               onClick={() => refetch()}

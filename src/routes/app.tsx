@@ -487,10 +487,20 @@ function AgentApp() {
                 </h2>
                 <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
                   <li>Share only basic profile details needed for likely eligibility guidance.</li>
-                  <li>No Aadhaar IDs, bank details, passwords, or uploads are collected.</li>
+                  <li>
+                    No Aadhaar numbers, bank account numbers, passwords, or uploads are collected.
+                  </li>
                   <li>Confirm final eligibility and application steps on official portals.</li>
                 </ul>
               </aside>
+            </div>
+
+            <div className="rounded-lg border border-accent/30 bg-accent/5 p-4 shadow-sm">
+              <p className="text-sm font-semibold text-primary">
+                Judge quick start: click the Farmer demo, review the loaded profile, then click Find
+                schemes. The report should show Qdrant retrieval, Qdrant memory, Enkrypt safety, and
+                workflow badges before the Vigilance scan.
+              </p>
             </div>
 
             <div className="grid gap-3 md:grid-cols-5">
