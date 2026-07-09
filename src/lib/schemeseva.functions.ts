@@ -57,6 +57,7 @@ function mapSchemeRow(row: Record<string, unknown>): Scheme {
     applicationMode: (row.application_mode ?? row.applicationMode ?? "both") as string,
     sourceUrl: (row.source_url ?? row.sourceUrl) as string,
     lastVerified: (row.last_verified ?? row.lastVerified) as string,
+    lastUpdated: (row.last_updated ?? row.lastUpdated ?? row.last_verified ?? row.lastVerified) as string,
     stateScope: (row.state_scope ?? row.stateScope) as string,
   };
 }

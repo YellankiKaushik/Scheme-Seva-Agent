@@ -55,6 +55,7 @@ export interface Scheme {
   applicationMode: string;
   sourceUrl: string;
   lastVerified: string;
+  lastUpdated: string;
   stateScope: string;
 }
 
