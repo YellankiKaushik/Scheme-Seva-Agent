@@ -25,6 +25,7 @@ export async function validateReport(
     return { status: "safe", provider: "passthrough", note: "Report too short to validate." };
   }
 
+  let enkryptFallbackWarning: string | null = null;
   if (enkryptConfigured()) {
     try {
       const r = await detectText(reportMarkdown, sourceContext);
@@ -33,12 +34,12 @@ export async function validateReport(
         status: r.safe ? "safe" : "warning",
         provider: "enkrypt",
         note: r.safe
-          ? "Validated by Enkrypt AI Guardrails (no hallucination, bias, toxicity, or policy issues)."
-          : `Enkrypt AI flagged: ${flagged.join(", ") || "unspecified"}.`,
+          ? `Validated by Enkrypt AI Guardrails${r.detectSchemaUsed ? ` (${r.detectSchemaUsed})` : ""}.`
+          : `Enkrypt AI flagged: ${flagged.join(", ") || "unspecified"}${r.detectSchemaUsed ? ` (${r.detectSchemaUsed})` : ""}.`,
         detections: r.detections,
       };
-    } catch {
-      // fall through to Gemini
+    } catch (e) {
+      enkryptFallbackWarning = `Enkrypt validation failed; used fallback safety validator. ${(e as Error).message}`;
     }
   }
 
@@ -67,13 +68,25 @@ export async function validateReport(
       status: output.safe ? "safe" : "warning",
       provider: "fallback-openrouter",
       note:
-        output.note ?? (output.safe ? "Validated (fallback)." : "Flagged by fallback validator."),
+        [
+          enkryptFallbackWarning,
+          output.note ?? (output.safe ? "Validated (fallback)." : "Flagged by fallback validator."),
+        ]
+          .filter(Boolean)
+          .join(" "),
     };
   } catch {
-    return { status: "safe", provider: "unavailable", note: "Validator unavailable." };
+    return {
+      status: "safe",
+      provider: "unavailable",
+      note: enkryptFallbackWarning ?? "Validator unavailable.",
+    };
   }
 }
 
-export async function validateAlert(alertText: string): Promise<SafetyReport> {
-  return validateReport(alertText, "Vigilance alert about a newly launched scheme.");
+export async function validateAlert(alertText: string, sourceContext?: string): Promise<SafetyReport> {
+  return validateReport(
+    alertText,
+    sourceContext ?? "Vigilance alert about a newly launched scheme.",
+  );
 }
