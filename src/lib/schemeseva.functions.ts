@@ -317,12 +317,17 @@ export const runDiscovery = createServerFn({ method: "POST" })
     const discSpan = trace.span("agent.discovery");
     const retrieval = await searchSchemes(allSchemes, profile, 20);
     const candidates = retrieval.schemes;
-    discSpan.end({ source: retrieval.source, count: candidates.length });
+    discSpan.end({
+      source: retrieval.source,
+      count: candidates.length,
+      ...retrieval.diagnostics,
+    });
     const discoveryStatus =
       retrieval.source === "fallback-local-keyword"
         ? fallback(
             retrieval.source,
-            "Qdrant unavailable; used deterministic local catalog keyword fallback.",
+            retrieval.diagnostics.fallbackReason ??
+              "Qdrant unavailable; used deterministic local catalog keyword fallback.",
           )
         : completed(retrieval.source, "Qdrant retrieval path used.");
 
@@ -422,10 +427,13 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
     };
 
     // Optional Qdrant semantic memory mirror
-    await rememberSession(
+    const memoryResult = await rememberSession(
       data.sessionKey,
       profile,
       `Retrieval=${retrieval.source} · Matches=${eligibleResults.length} · Safety=${safetyReport.provider}/${safetyReport.status}`,
+      eligibleResults,
+      retrieval.source,
+      safetyReport.provider,
     );
 
     saveLocalSession({
@@ -465,12 +473,16 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
       reportMarkdown,
       safety,
       retrievalProvider: retrieval.source,
+      retrievalDiagnostics: retrieval.diagnostics,
+      memoryProvider: memoryResult.provider === "qdrant" ? "qdrant" : "local",
+      memoryWrite: memoryResult.memoryWrite,
       workflowMode: "adapter",
       agentSteps,
     };
     await trace.end({
       matches: eligibleResults.length,
       retrieval: retrieval.source,
+      ...retrieval.diagnostics,
       safetyProvider: safetyReport.provider,
     });
     return result;

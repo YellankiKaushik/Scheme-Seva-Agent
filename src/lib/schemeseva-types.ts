@@ -81,6 +81,9 @@ export interface DiscoveryReport {
     provider: string;
   };
   retrievalProvider: string;
+  retrievalDiagnostics?: import("./qdrantSearch").RetrievalDiagnostics;
+  memoryProvider?: "qdrant" | "local" | "optional-supabase" | "unavailable";
+  memoryWrite?: "success" | "failed" | "skipped-local";
   workflowMode?: "adapter" | "runtime" | "fallback";
   agentSteps?: import("@/mastra/types").DiscoveryAgentSteps;
 }

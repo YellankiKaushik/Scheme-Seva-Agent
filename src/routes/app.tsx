@@ -371,6 +371,9 @@ function AgentApp() {
 
   async function handleNaturalLanguage() {
     setError(null);
+    setReport(null);
+    setVigilance(null);
+    setVigilanceError(null);
     setNlNotice(null);
     setStage("running");
     try {
@@ -402,6 +405,7 @@ function AgentApp() {
 
   async function runFullDiscovery(profile: CitizenProfile) {
     setError(null);
+    setReport(null);
     setVigilance(null);
     setVigilanceError(null);
     setStage("running");
@@ -597,6 +601,8 @@ function AgentApp() {
           <section className="space-y-6">
             <div className="flex flex-wrap gap-2">
               <StatusPill label={`Retrieval: ${report.retrievalProvider}`} />
+              <StatusPill label={`Memory: ${report.memoryProvider ?? "local"}`} />
+              <StatusPill label={`Memory write: ${report.memoryWrite ?? "skipped-local"}`} />
               <StatusPill label={`Safety: ${report.safety.provider}`} />
               <StatusPill label={`Workflow: ${report.workflowMode ?? "adapter"}`} />
             </div>
