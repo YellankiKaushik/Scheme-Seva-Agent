@@ -13,18 +13,26 @@ export function embeddingsProvider(): EmbeddingProvider {
   return "none";
 }
 
+function normalizeGeminiModelPath(model: string | undefined): string {
+  const clean = model?.trim() || "gemini-embedding-001";
+  return clean.startsWith("models/") ? clean : `models/${clean}`;
+}
+
 export async function embedText(text: string): Promise<number[] | null> {
   const provider = embeddingsProvider();
   const clean = text.slice(0, 4000);
   try {
     if (provider === "gemini-direct") {
+      const modelPath = normalizeGeminiModelPath(process.env.GEMINI_EMBEDDING_MODEL);
+      const outputDimensionality = parseInt(process.env.QDRANT_VECTOR_SIZE ?? "768", 10);
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${process.env.GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/${modelPath}:embedContent?key=${process.env.GEMINI_API_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             content: { parts: [{ text: clean }] },
+            outputDimensionality,
           }),
         },
       );

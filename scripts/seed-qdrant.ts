@@ -1,11 +1,17 @@
+import "dotenv/config";
+
 // Seed Qdrant from the local SchemeSeva catalog using Gemini embeddings.
 //
 // Required:
-//   QDRANT_URL, QDRANT_API_KEY, GEMINI_API_KEY
+//   QDRANT_URL, QDRANT_API_KEY
 //
 // Optional:
-//   QDRANT_COLLECTION   (default: schemeseva_schemes)
-//   QDRANT_VECTOR_SIZE  (default: 768)
+//   QDRANT_COLLECTION            (default: schemeseva_schemes)
+//   QDRANT_SESSIONS_COLLECTION   (default: citizen_sessions)
+//   QDRANT_ALERTS_COLLECTION     (default: pending_alerts)
+//   QDRANT_VECTOR_SIZE           (default: 768)
+//   GEMINI_API_KEY               (needed for real vector embeddings)
+//   GEMINI_EMBEDDING_MODEL       (default: gemini-embedding-001)
 
 import { localSchemes } from "../src/lib/localSchemes";
 
@@ -13,25 +19,51 @@ const {
   QDRANT_URL,
   QDRANT_API_KEY,
   QDRANT_COLLECTION = "schemeseva_schemes",
+  QDRANT_SESSIONS_COLLECTION = "citizen_sessions",
+  QDRANT_ALERTS_COLLECTION = "pending_alerts",
   QDRANT_VECTOR_SIZE = "768",
   GEMINI_API_KEY,
+  GEMINI_EMBEDDING_MODEL = "gemini-embedding-001",
 } = process.env;
 
-function must(name: string, value: string | undefined): string {
-  if (!value) {
-    console.error(`Missing required env: ${name}`);
+function requireEnv(name: string, value: string | undefined): string {
+  if (!value?.trim()) {
+    console.error(`Missing required environment variable: ${name}`);
+    console.error("Load values from your local .env file or shell environment, then rerun pnpm seed:qdrant.");
     process.exit(1);
   }
   return value;
 }
 
+function requireGeminiApiKey(): string {
+  if (!GEMINI_API_KEY?.trim()) {
+    console.error("Missing optional environment variable required for this seed path: GEMINI_API_KEY");
+    console.error("This script uses Gemini to create real vector embeddings and no local embedding fallback is configured.");
+    process.exit(1);
+  }
+  return GEMINI_API_KEY;
+}
+
+const qdrantUrl = requireEnv("QDRANT_URL", QDRANT_URL).replace(/\/$/, "");
+const qdrantApiKey = requireEnv("QDRANT_API_KEY", QDRANT_API_KEY);
+
+function normalizeGeminiModelPath(model: string): string {
+  const clean = model.trim() || "gemini-embedding-001";
+  return clean.startsWith("models/") ? clean : `models/${clean}`;
+}
+
 async function embed(text: string): Promise<number[]> {
+  const size = parseInt(QDRANT_VECTOR_SIZE, 10);
+  const modelPath = normalizeGeminiModelPath(GEMINI_EMBEDDING_MODEL);
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${must("GEMINI_API_KEY", GEMINI_API_KEY)}`,
+    `https://generativelanguage.googleapis.com/v1beta/${modelPath}:embedContent?key=${requireGeminiApiKey()}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: { parts: [{ text }] } }),
+      body: JSON.stringify({
+        content: { parts: [{ text }] },
+        outputDimensionality: size,
+      }),
     },
   );
   if (!res.ok) throw new Error(`Gemini embed ${res.status}: ${await res.text()}`);
@@ -41,11 +73,11 @@ async function embed(text: string): Promise<number[]> {
 }
 
 async function qdrant(path: string, init?: RequestInit) {
-  const res = await fetch(`${must("QDRANT_URL", QDRANT_URL).replace(/\/$/, "")}${path}`, {
+  const res = await fetch(`${qdrantUrl}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      "api-key": must("QDRANT_API_KEY", QDRANT_API_KEY),
+      "api-key": qdrantApiKey,
       ...(init?.headers ?? {}),
     },
   });
@@ -74,8 +106,8 @@ async function ensureCollection(name: string, size: number) {
 async function main() {
   const size = parseInt(QDRANT_VECTOR_SIZE, 10);
   await ensureCollection(QDRANT_COLLECTION, size);
-  await ensureCollection(process.env.QDRANT_SESSIONS_COLLECTION ?? "citizen_sessions", size);
-  await ensureCollection(process.env.QDRANT_ALERTS_COLLECTION ?? "pending_alerts", size);
+  await ensureCollection(QDRANT_SESSIONS_COLLECTION, size);
+  await ensureCollection(QDRANT_ALERTS_COLLECTION, size);
 
   let n = 0;
   for (const scheme of localSchemes) {

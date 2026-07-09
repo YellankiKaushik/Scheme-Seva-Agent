@@ -13,6 +13,22 @@ export type RetrievalSource = "qdrant-vector" | "qdrant-keyword" | "fallback-loc
 export interface RetrievalResult {
   source: RetrievalSource;
   schemes: Scheme[];
+  diagnostics: RetrievalDiagnostics;
+}
+
+export interface RetrievalDiagnostics {
+  qdrantConfigured: boolean;
+  qdrantVectorAttempted: boolean;
+  qdrantVectorHits: number;
+  qdrantKeywordAttempted: boolean;
+  qdrantKeywordHits: number;
+  fallbackUsed: boolean;
+  fallbackReason: string | null;
+}
+
+interface QdrantPoint {
+  id: string | number;
+  payload?: Record<string, unknown>;
 }
 
 export function buildQueryAngles(profile: CitizenProfile): string[] {
@@ -48,6 +64,53 @@ function buildProfileText(profile: CitizenProfile): string {
   return buildQueryAngles(profile).join(" ");
 }
 
+function mapQdrantPayloadToScheme(point: QdrantPoint): Scheme | null {
+  const payload = point.payload;
+  if (!payload) return null;
+  const id = (payload.scheme_id ?? payload.id ?? point.id) as string | number | undefined;
+  const schemeName = payload.scheme_name ?? payload.schemeName ?? payload.title;
+  if (!id || !schemeName) return null;
+  return {
+    id: String(id),
+    schemeName: String(schemeName),
+    ministry: String(payload.ministry ?? ""),
+    benefitType: String(payload.benefit_type ?? payload.benefitType ?? ""),
+    benefitAmount: String(payload.benefit_amount ?? payload.benefitAmount ?? ""),
+    description: String(payload.description ?? ""),
+    eligibility: (payload.eligibility as Scheme["eligibility"]) ?? {},
+    keywords: (payload.keywords as string[]) ?? [],
+    documentsRequired: ((payload.documents_required ?? payload.documentsRequired) as string[]) ?? [],
+    applicationSteps: ((payload.application_steps ?? payload.applicationSteps) as string[]) ?? [],
+    applicationUrl: ((payload.application_url ?? payload.applicationUrl) as string | null) ?? null,
+    applicationMode: String(payload.application_mode ?? payload.applicationMode ?? "both"),
+    sourceUrl: String(payload.source_url ?? payload.sourceUrl ?? ""),
+    lastVerified: String(payload.last_verified ?? payload.lastVerified ?? ""),
+    stateScope: String(payload.state_scope ?? payload.stateScope ?? "central"),
+  };
+}
+
+function devLog(message: string, data: Record<string, unknown>) {
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[SchemeSeva retrieval] ${message}`, data);
+  }
+}
+
+function mergeQdrantHits(
+  points: QdrantPoint[],
+  allSchemes: Scheme[],
+  existing: Scheme[] = [],
+): Scheme[] {
+  const byId = new Map(allSchemes.map((scheme) => [scheme.id, scheme]));
+  const merged = [...existing];
+  for (const point of points) {
+    const payloadId = point.payload?.scheme_id ?? point.payload?.id;
+    const id = String(payloadId ?? point.id);
+    const scheme = byId.get(id) ?? mapQdrantPayloadToScheme(point);
+    if (scheme && !merged.some((item) => item.id === scheme.id)) merged.push(scheme);
+  }
+  return merged;
+}
+
 function stateFilter(profile: CitizenProfile) {
   if (!profile.state) return undefined;
   return {
@@ -61,13 +124,16 @@ function stateFilter(profile: CitizenProfile) {
 async function tryVectorSearch(
   profileText: string,
   profile: CitizenProfile,
+  allSchemes: Scheme[],
   topN: number,
-): Promise<string[] | null> {
+): Promise<{ hits: Scheme[]; error: string | null }> {
   const vector = await embedText(profileText);
-  if (!vector) return null;
+  if (!vector) return { hits: [], error: "embedding-unavailable" };
   const cfg = qdrantConfig();
   const filter = stateFilter(profile);
-  try {
+
+  async function requestVector(useFilter: boolean) {
+    const activeFilter = useFilter ? filter : undefined;
     const res = await fetch(
       `${cfg.url!.replace(/\/$/, "")}/collections/${cfg.collection}/points/search`,
       {
@@ -77,51 +143,90 @@ async function tryVectorSearch(
           vector,
           limit: topN,
           with_payload: true,
-          ...(filter ? { filter } : {}),
+          ...(activeFilter ? { filter: activeFilter } : {}),
         }),
       },
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const queryRes = await fetch(
+        `${cfg.url!.replace(/\/$/, "")}/collections/${cfg.collection}/points/query`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "api-key": cfg.apiKey! },
+          body: JSON.stringify({
+            query: vector,
+            limit: topN,
+            with_payload: true,
+            ...(activeFilter ? { filter: activeFilter } : {}),
+          }),
+        },
+      );
+      if (!queryRes.ok) return { hits: [], error: `qdrant-vector-http-${queryRes.status}` };
+      const queryJson = (await queryRes.json()) as { result?: { points?: QdrantPoint[] } };
+      const queryHits = mergeQdrantHits(queryJson.result?.points ?? [], allSchemes);
+      return { hits: queryHits, error: null };
+    }
     const json = (await res.json()) as {
-      result?: Array<{ id: string | number; payload?: { scheme_id?: string } }>;
+      result?: QdrantPoint[];
     };
-    return (json.result ?? []).map((p) => p.payload?.scheme_id ?? String(p.id)).filter(Boolean);
-  } catch {
-    return null;
+    const hits = mergeQdrantHits(json.result ?? [], allSchemes);
+    return { hits, error: null };
+  }
+
+  try {
+    const filtered = await requestVector(Boolean(filter));
+    if (filtered.hits.length || !filter) return filtered;
+    const unfiltered = await requestVector(false);
+    return unfiltered.hits.length ? unfiltered : filtered;
+  } catch (e) {
+    return { hits: [], error: (e as Error).message || "qdrant-vector-request-failed" };
   }
 }
 
 async function tryKeywordScroll(
   profileText: string,
   profile: CitizenProfile,
-): Promise<string[] | null> {
+  allSchemes: Scheme[],
+  topN: number,
+): Promise<{ hits: Scheme[]; error: string | null; usableSchemes: number }> {
   const cfg = qdrantConfig();
   const filter = stateFilter(profile);
   try {
-    const res = await fetch(
-      `${cfg.url!.replace(/\/$/, "")}/collections/${cfg.collection}/points/scroll`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "api-key": cfg.apiKey! },
-        body: JSON.stringify({
-          limit: 100,
-          with_payload: true,
-          filter: {
-            ...(filter ?? {}),
-            must: [{ key: "keywords", match: { text: profileText.slice(0, 200) } }],
-          },
-        }),
-      },
-    );
-    if (!res.ok) return null;
-    const json = (await res.json()) as {
-      result: { points: Array<{ id: string | number; payload?: { scheme_id?: string } }> };
+    async function scroll(useFilter: boolean) {
+      const activeFilter = useFilter ? filter : undefined;
+      const res = await fetch(
+        `${cfg.url!.replace(/\/$/, "")}/collections/${cfg.collection}/points/scroll`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "api-key": cfg.apiKey! },
+          body: JSON.stringify({
+            limit: 100,
+            with_payload: true,
+            ...(activeFilter ? { filter: activeFilter } : {}),
+          }),
+        },
+      );
+      if (!res.ok) return { points: [], error: `qdrant-keyword-http-${res.status}` };
+      const json = (await res.json()) as {
+        result: { points: QdrantPoint[] };
+      };
+      return { points: json.result?.points ?? [], error: null };
+    }
+
+    const filtered = await scroll(Boolean(filter));
+    const points = filtered.points.length || !filter ? filtered : await scroll(false);
+    if (points.error && !points.points.length) {
+      return { hits: [], error: points.error, usableSchemes: 0 };
+    }
+    const qdrantSchemes = mergeQdrantHits(points.points, allSchemes);
+    const hits = discoverCandidates(qdrantSchemes, { ...profile, notes: profileText }, topN);
+    return { hits, error: null, usableSchemes: qdrantSchemes.length };
+  } catch (e) {
+    return {
+      hits: [],
+      error: (e as Error).message || "qdrant-keyword-request-failed",
+      usableSchemes: 0,
     };
-    return (json.result?.points ?? [])
-      .map((p) => p.payload?.scheme_id ?? String(p.id))
-      .filter(Boolean);
-  } catch {
-    return null;
   }
 }
 
@@ -130,44 +235,83 @@ export async function searchSchemes(
   profile: CitizenProfile,
   topN = 20,
 ): Promise<RetrievalResult> {
+  const diagnostics: RetrievalDiagnostics = {
+    qdrantConfigured: qdrantConfigured(),
+    qdrantVectorAttempted: false,
+    qdrantVectorHits: 0,
+    qdrantKeywordAttempted: false,
+    qdrantKeywordHits: 0,
+    fallbackUsed: false,
+    fallbackReason: null,
+  };
+
   if (!qdrantConfigured()) {
+    diagnostics.fallbackUsed = true;
+    diagnostics.fallbackReason = "Qdrant credentials are missing.";
+    devLog("fallback", { reason: diagnostics.fallbackReason });
     return {
       source: "fallback-local-keyword",
       schemes: discoverCandidates(allSchemes, profile, topN),
+      diagnostics,
     };
   }
 
   const profileText = buildProfileText(profile);
   const queryAngles = buildQueryAngles(profile);
+  let fallbackReason: string | null = null;
 
   // 1. Vector search when embeddings are configured.
   if (embeddingsConfigured()) {
-    const mergedIds: string[] = [];
+    diagnostics.qdrantVectorAttempted = true;
+    let mergedHits: Scheme[] = [];
     for (const query of queryAngles) {
-      const ids = await tryVectorSearch(query, profile, Math.max(5, Math.ceil(topN / 2)));
-      for (const id of ids ?? []) {
-        if (!mergedIds.includes(id)) mergedIds.push(id);
+      const result = await tryVectorSearch(
+        query,
+        profile,
+        allSchemes,
+        Math.max(5, Math.ceil(topN / 2)),
+      );
+      const hits = result.hits;
+      if (hits?.length) {
+        mergedHits = mergeQdrantHits(
+          hits.map((scheme) => ({ id: scheme.id, payload: { id: scheme.id } })),
+          hits,
+          mergedHits,
+        );
       }
-      if (mergedIds.length >= topN) break;
+      if (mergedHits.length >= topN) break;
+      if (result.error) fallbackReason = result.error;
     }
-    if (mergedIds.length) {
-      const wanted = new Set(mergedIds);
-      const hits = allSchemes.filter((s) => wanted.has(s.id));
-      if (hits.length) return { source: "qdrant-vector", schemes: hits.slice(0, topN) };
+    diagnostics.qdrantVectorHits = mergedHits.length;
+    devLog("qdrant vector hits", { count: diagnostics.qdrantVectorHits });
+    if (mergedHits.length) {
+      return { source: "qdrant-vector", schemes: mergedHits.slice(0, topN), diagnostics };
     }
+  } else {
+    fallbackReason = "Gemini embeddings are not configured.";
   }
 
   // 2. Payload keyword scroll fallback.
-  const ids = await tryKeywordScroll(profileText, profile);
-  if (ids && ids.length) {
-    const wanted = new Set(ids);
-    const hits = allSchemes.filter((s) => wanted.has(s.id));
-    if (hits.length) return { source: "qdrant-keyword", schemes: hits.slice(0, topN) };
+  diagnostics.qdrantKeywordAttempted = true;
+  const keyword = await tryKeywordScroll(profileText, profile, allSchemes, topN);
+  diagnostics.qdrantKeywordHits = keyword.hits.length;
+  devLog("qdrant keyword hits", { count: diagnostics.qdrantKeywordHits });
+  if (keyword.hits.length) {
+    return { source: "qdrant-keyword", schemes: keyword.hits.slice(0, topN), diagnostics };
   }
 
   // 3. Local fallback so the demo always returns something.
+  diagnostics.fallbackUsed = true;
+  diagnostics.fallbackReason =
+    keyword.error ??
+    fallbackReason ??
+    (keyword.usableSchemes === 0
+      ? "Qdrant returned zero usable scheme payloads."
+      : "Qdrant returned no matching schemes.");
+  devLog("fallback", { reason: diagnostics.fallbackReason });
   return {
     source: "fallback-local-keyword",
     schemes: discoverCandidates(allSchemes, profile, topN),
+    diagnostics,
   };
 }
