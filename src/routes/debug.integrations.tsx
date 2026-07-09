@@ -1,13 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { RefreshCw } from "lucide-react";
 import { SiteHeader, SiteFooter } from "@/components/site-chrome";
 import { getIntegrationsStatus } from "@/lib/integrations-status.functions";
 
 export const Route = createFileRoute("/debug/integrations")({
   head: () => ({
     meta: [
-      { title: "Integrations status — SchemeSeva" },
+      { title: "Integrations status - SchemeSeva" },
       {
         name: "description",
         content:
@@ -21,11 +23,11 @@ export const Route = createFileRoute("/debug/integrations")({
 function Pill({ ok, label }: { ok: boolean; label: string }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-        ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${
+        ok ? "bg-success/15 text-success" : "bg-warning/20 text-primary"
       }`}
     >
-      {ok ? "● " : "○ "}
+      <span className={`h-1.5 w-1.5 rounded-full ${ok ? "bg-success" : "bg-warning"}`} />
       {label}
     </span>
   );
@@ -61,41 +63,50 @@ function IntegrationsPage() {
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
-      <main className="mx-auto max-w-4xl px-4 py-16">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="font-display text-4xl font-semibold text-primary">
-              Integrations status
-            </h1>
-            <p className="mt-2 max-w-2xl text-muted-foreground">
-              Live check of the independent SchemeSeva stack and demo fallbacks.
-            </p>
-          </div>
-          <button
-            onClick={() => refetch()}
-            className="rounded-md border border-border bg-card px-3 py-1.5 text-sm hover:bg-parchment"
-          >
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </button>
-        </div>
-
-        {isLoading && !data ? (
-          <p className="mt-8 text-muted-foreground">Loading status…</p>
-        ) : isError || !data ? (
-          <section className="mt-8 rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
-            <h2 className="font-display text-lg font-semibold text-amber-900">
-              Unable to load integration status
-            </h2>
-            <p className="mt-2 text-sm text-amber-800">{errorMessage(error)}</p>
+      <main className="mx-auto max-w-6xl px-4 py-12">
+        <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <span className="inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
+                Debug transparency
+              </span>
+              <h1 className="mt-3 font-display text-4xl font-semibold text-primary">
+                Integrations status
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+                Live check of the independent SchemeSeva stack and demo fallbacks. This page shows
+                whether providers are active without exposing secrets.
+              </p>
+            </div>
             <button
               onClick={() => refetch()}
-              className="mt-4 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+              className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold text-primary transition hover:bg-secondary"
+            >
+              <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+              {isFetching ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
+        </section>
+
+        {isLoading && !data ? (
+          <p className="mt-8 rounded-lg border border-border bg-card p-5 text-muted-foreground shadow-sm">
+            Loading status...
+          </p>
+        ) : isError || !data ? (
+          <section className="mt-8 rounded-lg border border-warning/40 bg-warning/10 p-5 shadow-sm">
+            <h2 className="font-display text-lg font-semibold text-primary">
+              Unable to load integration status
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">{errorMessage(error)}</p>
+            <button
+              onClick={() => refetch()}
+              className="mt-4 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-semibold text-primary hover:bg-secondary"
             >
               Retry
             </button>
           </section>
         ) : (
-          <div className="mt-8 space-y-4">
+          <div className="mt-8 grid gap-4 lg:grid-cols-2">
             <Card
               title="Workflow runtime"
               primary={data.mastra.configured}
@@ -113,12 +124,12 @@ function IntegrationsPage() {
               ]}
             >
               <p className="text-sm text-muted-foreground">
-                Retrieval provider: <code>{data.currentRetrievalProvider}</code> · Safety provider:{" "}
-                <code>{data.currentSafetyProvider}</code> · Memory provider:{" "}
+                Retrieval provider: <code>{data.currentRetrievalProvider}</code> | Safety provider:{" "}
+                <code>{data.currentSafetyProvider}</code> | Memory provider:{" "}
                 <code>{data.memoryProvider}</code>
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
-                Last discovery: {data.lastSuccessfulDiscoveryRun ?? "none yet"} · Last vigilance:{" "}
+                Last discovery: {data.lastSuccessfulDiscoveryRun ?? "none yet"} | Last vigilance:{" "}
                 {data.lastSuccessfulVigilanceRun ?? "none yet"}
               </p>
             </Card>
@@ -136,13 +147,13 @@ function IntegrationsPage() {
             >
               <p className="text-sm text-muted-foreground">{data.mastra.reason}</p>
               <p className="mt-2 text-xs text-muted-foreground">
-                Agents: {data.mastra.agents.join(", ")} · Workflows:{" "}
+                Agents: {data.mastra.agents.join(", ")} | Workflows:{" "}
                 {data.mastra.workflows.join(", ")}
               </p>
             </Card>
 
             <Card
-              title="Qdrant (scheme retrieval + optional memory)"
+              title="Qdrant retrieval + memory"
               primary={data.qdrant.primary}
               badges={[
                 <Pill
@@ -168,13 +179,13 @@ function IntegrationsPage() {
                 {data.qdrant.url ? ` @ ${data.qdrant.url}` : ""}
               </p>
               {data.qdrant.error ? (
-                <p className="mt-1 text-xs text-amber-700">Error: {data.qdrant.error}</p>
+                <p className="mt-1 text-xs text-primary">Error: {data.qdrant.error}</p>
               ) : null}
               <p className="mt-2 text-xs text-muted-foreground">Fallback: {data.qdrant.fallback}</p>
             </Card>
 
             <Card
-              title="Enkrypt AI (safety validator)"
+              title="Enkrypt AI validation"
               primary={data.enkrypt.primary}
               badges={[
                 <Pill
@@ -209,7 +220,7 @@ function IntegrationsPage() {
               <p className="text-sm text-muted-foreground">Base URL: {data.enkrypt.baseUrl}</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Health:{" "}
-                <code>{data.enkrypt.healthConnected === true ? "connected" : "failed"}</code> ·
+                <code>{data.enkrypt.healthConnected === true ? "connected" : "failed"}</code> |
                 Detect:{" "}
                 <code>
                   {data.enkrypt.detectPayloadValid === true
@@ -221,46 +232,21 @@ function IntegrationsPage() {
                 {data.enkrypt.detectSchemaUsed ? (
                   <>
                     {" "}
-                    · Schema: <code>{data.enkrypt.detectSchemaUsed}</code>
+                    | Schema: <code>{data.enkrypt.detectSchemaUsed}</code>
                   </>
                 ) : null}
               </p>
               {data.enkrypt.lastDetectError ? (
-                <p className="mt-1 text-xs text-amber-700">
+                <p className="mt-1 text-xs text-primary">
                   Last detect error: {data.enkrypt.lastDetectError}
                 </p>
               ) : null}
               {data.enkrypt.error ? (
-                <p className="mt-1 text-xs text-amber-700">Error: {data.enkrypt.error}</p>
+                <p className="mt-1 text-xs text-primary">Error: {data.enkrypt.error}</p>
               ) : null}
               <p className="mt-2 text-xs text-muted-foreground">
                 Fallback: {data.enkrypt.fallback}
               </p>
-            </Card>
-
-            <Card
-              title="Supabase (optional fallback)"
-              primary={data.supabase.reachable}
-              badges={[
-                <Pill
-                  key="c"
-                  ok={data.supabase.configured}
-                  label={data.supabase.configured ? "configured" : "missing"}
-                />,
-                <Pill
-                  key="r"
-                  ok={data.supabase.reachable}
-                  label={data.supabase.reachable ? "connected" : "unreachable"}
-                />,
-              ]}
-            >
-              <p className="text-sm text-muted-foreground">
-                Optional fallback for catalog and session persistence. SchemeSeva can run with
-                Qdrant or local demo data when Supabase is missing.
-              </p>
-              {data.supabase.error ? (
-                <p className="mt-1 text-xs text-amber-700">Error: {data.supabase.error}</p>
-              ) : null}
             </Card>
 
             <Card
@@ -275,7 +261,7 @@ function IntegrationsPage() {
                 <Pill
                   key="d"
                   ok={data.demoMode}
-                  label={data.demoMode ? "demo mode ON" : "demo mode off"}
+                  label={data.demoMode ? "demo mode on" : "demo mode off"}
                 />,
               ]}
             >
@@ -326,11 +312,11 @@ function IntegrationsPage() {
                 Base URL: <code>{data.langfuse.baseUrl}</code>
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Last trace: {data.langfuse.lastTraceStatus.traceName ?? "none yet"} ·{" "}
+                Last trace: {data.langfuse.lastTraceStatus.traceName ?? "none yet"} |{" "}
                 {data.langfuse.lastTraceStatus.at}
               </p>
               {data.langfuse.lastTraceStatus.error ? (
-                <p className="mt-1 text-xs text-amber-700">
+                <p className="mt-1 text-xs text-primary">
                   Error: {data.langfuse.lastTraceStatus.error}
                 </p>
               ) : null}
@@ -371,7 +357,32 @@ function IntegrationsPage() {
                 Store: <code>{data.upstash.host ?? "not configured"}</code>
               </p>
               {data.upstash.error ? (
-                <p className="mt-1 text-xs text-amber-700">Status: {data.upstash.error}</p>
+                <p className="mt-1 text-xs text-primary">Status: {data.upstash.error}</p>
+              ) : null}
+            </Card>
+
+            <Card
+              title="Supabase optional fallback"
+              primary={data.supabase.reachable}
+              badges={[
+                <Pill
+                  key="c"
+                  ok={data.supabase.configured}
+                  label={data.supabase.configured ? "configured" : "missing"}
+                />,
+                <Pill
+                  key="r"
+                  ok={data.supabase.reachable}
+                  label={data.supabase.reachable ? "connected" : "unreachable"}
+                />,
+              ]}
+            >
+              <p className="text-sm text-muted-foreground">
+                Optional fallback for catalog and session persistence. SchemeSeva can run with
+                Qdrant or local demo data when Supabase is missing.
+              </p>
+              {data.supabase.error ? (
+                <p className="mt-1 text-xs text-primary">Error: {data.supabase.error}</p>
               ) : null}
             </Card>
           </div>
@@ -390,19 +401,19 @@ function Card({
 }: {
   title: string;
   primary: boolean;
-  badges: React.ReactNode[];
-  children: React.ReactNode;
+  badges: ReactNode[];
+  children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <h2 className="font-display text-lg font-semibold text-primary">{title}</h2>
         <div className="flex flex-wrap gap-1.5">
           <Pill ok={primary} label={primary ? "primary active" : "fallback / adapter"} />
           {badges}
         </div>
       </div>
-      <div className="mt-3">{children}</div>
+      <div className="mt-4">{children}</div>
     </section>
   );
 }

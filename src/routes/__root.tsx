@@ -46,7 +46,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
+          This page did not load
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Something went wrong on our end. You can try refreshing or head back home.
@@ -78,18 +78,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "SchemeSeva — Find every government scheme you're entitled to" },
+      { title: "SchemeSeva - Find schemes you may likely qualify for" },
       {
         name: "description",
         content:
-          "SchemeSeva is a civic AI agent that discovers Indian government schemes you may qualify for — and proactively alerts you when new ones appear. Built for the HiDevs × Mastra Hackathon.",
+          "SchemeSeva is a civic AI agent that discovers Indian government schemes you may likely qualify for and proactively alerts you when new matches appear. Built for the HiDevs x Mastra Hackathon.",
       },
       { name: "author", content: "Kaushik Yellanki" },
-      { property: "og:title", content: "SchemeSeva — Civic AI for Indian government schemes" },
+      { property: "og:title", content: "SchemeSeva - Civic AI for Indian government schemes" },
       {
         property: "og:description",
         content:
-          "Describe your life in plain English. Get a personalised, source-grounded list of government schemes you likely qualify for.",
+          "Describe your situation in plain English. Get a personalised, source-grounded list of government schemes you may likely qualify for.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

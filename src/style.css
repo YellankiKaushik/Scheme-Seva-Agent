@@ -39,7 +39,7 @@
 }
 
 :root {
-  --radius: 0.75rem;
+  --radius: 0.5rem;
   /* Civic-tech palette: parchment cream + deep indigo ink + saffron accent */
   --background: oklch(0.983 0.012 85);
   /* warm cream */
@@ -115,11 +115,100 @@
   h3,
   .font-display {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    letter-spacing: 0;
   }
 }
 
 @layer components {
+  .ss-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.5rem;
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+    padding: 0.75rem 1.1rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    box-shadow: 0 8px 20px oklch(0.24 0.06 265 / 12%);
+    transition:
+      transform 160ms ease,
+      box-shadow 160ms ease,
+      opacity 160ms ease;
+  }
+
+  .ss-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 24px oklch(0.24 0.06 265 / 16%);
+  }
+
+  .ss-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--color-border);
+    background: var(--color-card);
+    color: var(--color-primary);
+    padding: 0.72rem 1.05rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    transition:
+      border-color 160ms ease,
+      background-color 160ms ease,
+      transform 160ms ease;
+  }
+
+  .ss-btn-secondary:hover {
+    border-color: var(--color-accent);
+    background: var(--color-secondary);
+    transform: translateY(-1px);
+  }
+
+  .ss-btn-accent {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.5rem;
+    background: var(--color-accent);
+    color: var(--color-accent-foreground);
+    padding: 0.75rem 1.05rem;
+    font-size: 0.9rem;
+    font-weight: 800;
+    transition:
+      opacity 160ms ease,
+      transform 160ms ease;
+  }
+
+  .ss-btn-accent:hover,
+  .ss-btn-on-dark:hover {
+    transform: translateY(-1px);
+  }
+
+  .ss-btn-on-dark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid oklch(1 0 0 / 20%);
+    background: oklch(1 0 0 / 8%);
+    color: var(--color-primary-foreground);
+    padding: 0.72rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 700;
+    transition:
+      background-color 160ms ease,
+      transform 160ms ease;
+  }
+
+  .ss-btn-on-dark:hover {
+    background: oklch(1 0 0 / 14%);
+  }
+
   .prose-scheme h2 {
     font-family: var(--font-display);
     font-size: 1.5rem;

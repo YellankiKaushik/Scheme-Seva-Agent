@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
+import { BellRing, FileText, RotateCcw, Search, Sparkles } from "lucide-react";
 import { SiteHeader, SiteFooter } from "@/components/site-chrome";
 import { schemeDiscoveryWorkflow } from "@/mastra/workflows/schemeDiscoveryWorkflow";
 import { vigilanceWorkflow } from "@/mastra/workflows/vigilanceWorkflow";
@@ -464,20 +465,32 @@ function AgentApp() {
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
-      <main className="mx-auto max-w-5xl px-4 py-10">
+      <main className="mx-auto max-w-6xl px-4 py-10">
         {stage === "intake" && (
           <section className="space-y-8">
-            <div>
-              <span className="text-sm font-semibold uppercase tracking-wider text-accent">
-                SchemeSeva agent
-              </span>
-              <h1 className="mt-2 font-display text-3xl font-semibold text-primary sm:text-4xl">
-                Build a profile, then run the five-agent workflow.
-              </h1>
-              <p className="mt-3 max-w-3xl text-muted-foreground">
-                The guided form avoids guesswork and keeps the demo moving. You can still describe
-                your situation in words if you prefer.
-              </p>
+            <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr] lg:items-end">
+              <div>
+                <span className="inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
+                  SchemeSeva agent
+                </span>
+                <h1 className="mt-4 font-display text-3xl font-semibold text-primary sm:text-5xl">
+                  Build a profile, then run the five-agent workflow.
+                </h1>
+                <p className="mt-3 max-w-3xl text-base leading-relaxed text-muted-foreground">
+                  Use the guided form or describe the situation in words. SchemeSeva searches the
+                  verified catalog, checks rules, validates the report, and keeps sources visible.
+                </p>
+              </div>
+              <aside className="rounded-lg border border-border bg-card p-5 shadow-sm">
+                <h2 className="font-display text-lg font-semibold text-primary">
+                  No sign-up required for demo
+                </h2>
+                <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                  <li>Share only basic profile details needed for likely eligibility guidance.</li>
+                  <li>No Aadhaar IDs, bank details, passwords, or uploads are collected.</li>
+                  <li>Confirm final eligibility and application steps on official portals.</li>
+                </ul>
+              </aside>
             </div>
 
             <div className="grid gap-3 md:grid-cols-5">
@@ -486,7 +499,7 @@ function AgentApp() {
                   key={demo.label}
                   type="button"
                   onClick={() => applyDemo(demo.form)}
-                  className="rounded-lg border border-border bg-card p-4 text-left shadow-sm transition hover:border-accent hover:bg-parchment/60 focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="rounded-lg border border-border bg-card p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-accent hover:bg-parchment/60 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   <span className="font-display text-base font-semibold text-primary">
                     {demo.label}
@@ -498,7 +511,7 @@ function AgentApp() {
               ))}
             </div>
 
-            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
               <div className="flex flex-wrap gap-2 border-b border-border pb-4">
                 <TabButton active={mode === "guided"} onClick={() => setMode("guided")}>
                   Guided form
@@ -537,7 +550,7 @@ function AgentApp() {
                       type="button"
                       onClick={backStep}
                       disabled={step === 1}
-                      className="rounded-md border border-border bg-card px-4 py-2 text-sm font-semibold text-primary disabled:opacity-40"
+                      className="rounded-md border border-border bg-card px-4 py-2 text-sm font-semibold text-primary transition hover:bg-secondary disabled:opacity-40"
                     >
                       Back
                     </button>
@@ -545,16 +558,18 @@ function AgentApp() {
                       <button
                         type="button"
                         onClick={continueStep}
-                        className="rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
+                        className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95"
                       >
+                        <Sparkles className="h-4 w-4" />
                         Continue
                       </button>
                     ) : (
                       <button
                         type="button"
                         onClick={submitStructuredForm}
-                        className="rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
+                        className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95"
                       >
+                        <Search className="h-4 w-4" />
                         Find schemes
                       </button>
                     )}
@@ -581,8 +596,9 @@ function AgentApp() {
                     type="button"
                     onClick={handleNaturalLanguage}
                     disabled={text.trim().length < 10}
-                    className="mt-4 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                    className="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95 disabled:opacity-50"
                   >
+                    <FileText className="h-4 w-4" />
                     Extract profile
                   </button>
                 </div>
@@ -592,7 +608,7 @@ function AgentApp() {
         )}
 
         {stage === "running" && (
-          <section className="rounded-xl border border-border bg-card p-8 text-center shadow-sm">
+          <section className="rounded-lg border border-border bg-card p-8 text-center shadow-sm">
             <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-secondary border-t-accent" />
             <h2 className="mt-6 font-display text-2xl font-semibold text-primary">
               The agents are working...
@@ -609,6 +625,26 @@ function AgentApp() {
 
         {stage === "report" && report && (
           <section className="space-y-6">
+            <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <span className="inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
+                    Source-grounded report
+                  </span>
+                  <h1 className="mt-3 font-display text-3xl font-semibold text-primary">
+                    Your likely eligible scheme matches
+                  </h1>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    Use this as guidance. Confirm final eligibility and application steps on the
+                    official portal linked in each source.
+                  </p>
+                </div>
+                <span className="rounded-full bg-accent/15 px-3 py-1 text-xs font-semibold text-primary">
+                  {report.eligible.length} likely matches
+                </span>
+              </div>
+            </div>
+
             <div className="flex flex-wrap gap-2">
               <StatusPill label={`Retrieval: ${report.retrievalProvider}`} />
               <StatusPill label={`Memory: ${report.memoryProvider ?? "local"}`} />
@@ -627,7 +663,45 @@ function AgentApp() {
               </div>
             )}
 
-            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            {report.eligible.length > 0 && (
+              <div className="grid gap-4 md:grid-cols-2">
+                {report.eligible.slice(0, 4).map((match) => (
+                  <article
+                    key={match.schemeId}
+                    className="rounded-lg border border-border bg-card p-5 shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-success/15 px-2.5 py-1 text-xs font-bold uppercase text-success">
+                        likely eligible
+                      </span>
+                      <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-primary">
+                        {match.confidence} confidence
+                      </span>
+                    </div>
+                    <h2 className="mt-3 font-display text-lg font-semibold text-primary">
+                      {match.schemeName}
+                    </h2>
+                    <p className="mt-2 text-sm font-semibold text-success">{match.benefitAmount}</p>
+                    <p className="mt-3 break-all text-xs text-muted-foreground">
+                      sourceUrl:{" "}
+                      <a
+                        href={match.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline hover:text-accent"
+                      >
+                        {match.sourceUrl}
+                      </a>
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      lastVerified: {match.lastVerified}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            )}
+
+            <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="font-display text-2xl font-semibold text-primary">
                   Your personalised report
@@ -641,7 +715,7 @@ function AgentApp() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-accent/40 bg-accent/5 p-6">
+            <div className="rounded-lg border border-accent/40 bg-accent/5 p-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <span className="text-xs font-semibold uppercase tracking-wider text-accent">
@@ -659,8 +733,9 @@ function AgentApp() {
                   type="button"
                   onClick={handleVigilance}
                   disabled={vigilanceLoading}
-                  className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95 disabled:opacity-50"
                 >
+                  <BellRing className="h-4 w-4" />
                   {vigilanceLoading ? "Scanning..." : "Run vigilance scan"}
                 </button>
               </div>
@@ -705,8 +780,9 @@ function AgentApp() {
               <button
                 type="button"
                 onClick={reset}
-                className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-primary hover:bg-secondary"
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-primary transition hover:bg-secondary"
               >
+                <RotateCcw className="h-4 w-4" />
                 Start over
               </button>
             </div>
@@ -725,14 +801,16 @@ function TabButton({
 }: {
   active: boolean;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-md px-3 py-2 text-sm font-semibold ${
-        active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+      className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+        active
+          ? "bg-primary text-primary-foreground shadow-sm"
+          : "text-muted-foreground hover:bg-secondary hover:text-primary"
       }`}
     >
       {children}
@@ -751,7 +829,7 @@ function Progress({ step }: { step: FormStep }) {
         return (
           <li
             key={label}
-            className={`rounded-lg border px-3 py-2 text-sm ${
+            className={`rounded-lg border px-3 py-2 text-sm transition ${
               active || done
                 ? "border-accent bg-accent/10 text-primary"
                 : "border-border bg-background text-muted-foreground"
@@ -983,15 +1061,7 @@ function StepReview({
   );
 }
 
-function Field({
-  label,
-  error,
-  children,
-}: {
-  label: string;
-  error?: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
   return (
     <label className="block">
       <span className="text-sm font-medium text-primary">{label}</span>
@@ -1017,7 +1087,7 @@ function Segmented({
           key={option}
           type="button"
           onClick={() => onChange(option)}
-          className={`rounded-md border px-3 py-2 text-sm font-semibold capitalize ${
+          className={`rounded-md border px-3 py-2 text-sm font-semibold capitalize transition ${
             value === option
               ? "border-primary bg-primary text-primary-foreground"
               : "border-border bg-card text-primary hover:bg-secondary"
@@ -1032,7 +1102,7 @@ function Segmented({
 
 function StatusPill({ label }: { label: string }) {
   return (
-    <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold text-primary">
+    <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold text-primary shadow-sm">
       {label}
     </span>
   );
@@ -1053,7 +1123,7 @@ function AlertBanner({
   };
 }) {
   return (
-    <div className="rounded-lg border border-accent/40 bg-card p-4">
+    <div className="rounded-lg border border-accent/40 bg-card p-4 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold uppercase text-accent-foreground">
           {alert.urgency} urgency
@@ -1070,4 +1140,4 @@ function AlertBanner({
 }
 
 const inputClass =
-  "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-primary outline-none focus:ring-2 focus:ring-ring";
+  "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-primary outline-none transition focus:ring-2 focus:ring-ring";
