@@ -88,9 +88,13 @@ async function qdrant(path: string, init?: RequestInit) {
   return res.json().catch(() => ({}));
 }
 
-async function ensureCollection(name: string, size: number) {
+async function ensureCollection(name: string, size: number, recreate = false) {
   try {
     await qdrant(`/collections/${name}`);
+    if (recreate) {
+      await qdrant(`/collections/${name}`, { method: "DELETE" });
+      throw new Error("recreate requested");
+    }
     console.log(`Collection ${name} exists`);
   } catch {
     await qdrant(`/collections/${name}`, {
@@ -105,7 +109,7 @@ async function ensureCollection(name: string, size: number) {
 
 async function main() {
   const size = parseInt(QDRANT_VECTOR_SIZE, 10);
-  await ensureCollection(QDRANT_COLLECTION, size);
+  await ensureCollection(QDRANT_COLLECTION, size, true);
   await ensureCollection(QDRANT_SESSIONS_COLLECTION, size);
   await ensureCollection(QDRANT_ALERTS_COLLECTION, size);
 
@@ -149,7 +153,7 @@ async function main() {
               last_verified: scheme.lastVerified,
               keywords: scheme.keywords,
               state_scope: scheme.stateScope,
-              last_updated: new Date().toISOString(),
+              last_updated: scheme.lastUpdated ?? new Date().toISOString(),
             },
           },
         ],

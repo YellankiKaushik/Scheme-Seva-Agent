@@ -85,6 +85,9 @@ function mapQdrantPayloadToScheme(point: QdrantPoint): Scheme | null {
     applicationMode: String(payload.application_mode ?? payload.applicationMode ?? "both"),
     sourceUrl: String(payload.source_url ?? payload.sourceUrl ?? ""),
     lastVerified: String(payload.last_verified ?? payload.lastVerified ?? ""),
+    lastUpdated: String(
+      payload.last_updated ?? payload.lastUpdated ?? payload.last_verified ?? payload.lastVerified ?? "",
+    ),
     stateScope: String(payload.state_scope ?? payload.stateScope ?? "central"),
   };
 }
