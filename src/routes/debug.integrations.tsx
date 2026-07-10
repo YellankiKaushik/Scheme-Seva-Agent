@@ -23,7 +23,7 @@ export const Route = createFileRoute("/debug/integrations")({
 function Pill({ ok, label }: { ok: boolean; label: string }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${
+      className={`inline-flex max-w-full items-center gap-1.5 break-words rounded-full px-2 py-0.5 text-xs font-semibold ${
         ok ? "bg-success/15 text-success" : "bg-warning/20 text-primary"
       }`}
     >
@@ -63,14 +63,14 @@ function IntegrationsPage() {
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
-      <main className="mx-auto max-w-6xl px-4 py-12">
-        <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:py-12">
+        <section className="rounded-lg border border-border bg-card p-5 shadow-sm sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
+            <div className="min-w-0">
               <span className="inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
                 Debug transparency
               </span>
-              <h1 className="mt-3 font-display text-4xl font-semibold text-primary">
+              <h1 className="mt-3 font-display text-3xl font-semibold leading-tight text-primary sm:text-4xl">
                 Integrations status
               </h1>
               <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
@@ -85,7 +85,7 @@ function IntegrationsPage() {
             </div>
             <button
               onClick={() => refetch()}
-              className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold text-primary transition hover:bg-secondary"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold text-primary transition hover:bg-secondary sm:w-auto"
             >
               <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
               {isFetching ? "Refreshing..." : "Refresh"}
@@ -105,7 +105,7 @@ function IntegrationsPage() {
             <p className="mt-2 text-sm text-muted-foreground">{errorMessage(error)}</p>
             <button
               onClick={() => refetch()}
-              className="mt-4 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-semibold text-primary hover:bg-secondary"
+              className="mt-4 inline-flex min-h-11 items-center justify-center rounded-md border border-border bg-card px-3 py-1.5 text-sm font-semibold text-primary hover:bg-secondary"
             >
               Retry
             </button>
@@ -410,15 +410,15 @@ function Card({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+    <section className="min-w-0 rounded-lg border border-border bg-card p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <h2 className="font-display text-lg font-semibold text-primary">{title}</h2>
-        <div className="flex flex-wrap gap-1.5">
+        <h2 className="min-w-0 font-display text-lg font-semibold text-primary">{title}</h2>
+        <div className="flex min-w-0 flex-wrap gap-1.5">
           <Pill ok={primary} label={primary ? "primary active" : "fallback / adapter"} />
           {badges}
         </div>
       </div>
-      <div className="mt-4">{children}</div>
+      <div className="mt-4 min-w-0 break-words">{children}</div>
     </section>
   );
 }
