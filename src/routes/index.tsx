@@ -135,17 +135,17 @@ function LandingPage() {
 
       <main>
         <section className="border-b border-border/70 bg-parchment/45">
-          <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 sm:py-20 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
-            <div>
+          <div className="mx-auto grid max-w-6xl gap-10 px-4 py-12 sm:py-20 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
+            <div className="min-w-0">
               <Badge>Citizen-first welfare discovery</Badge>
-              <h1 className="mt-5 font-display text-4xl font-semibold leading-tight text-primary sm:text-6xl">
+              <h1 className="mt-5 font-display text-3xl font-semibold leading-tight text-primary sm:text-6xl">
                 Find schemes you may likely qualify for, with sources and proactive alerts.
               </h1>
               <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
                 SchemeSeva is a civic AI agent that helps citizens discover relevant government
                 schemes, understand likely eligibility, and keep watch for future matches.
               </p>
-              <div className="mt-8 flex flex-wrap gap-3">
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                 <Link to="/app" className="ss-btn-primary">
                   <Sparkles className="h-4 w-4" />
                   Launch agent
@@ -168,7 +168,7 @@ function LandingPage() {
               </p>
             </div>
 
-            <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
+            <div className="min-w-0 rounded-lg border border-border bg-card p-5 shadow-sm sm:p-6">
               <div className="flex items-center gap-3">
                 <div className="rounded-lg bg-accent/15 p-3 text-primary">
                   <Layers3 className="h-6 w-6" />
@@ -320,7 +320,7 @@ function LandingPage() {
                   live integrations for the hackathon proof trail.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                 <Link to="/app" className="ss-btn-accent">
                   <UserRound className="h-4 w-4" />
                   Launch agent
@@ -377,7 +377,7 @@ function Section({
 
 function Badge({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
+    <span className="inline-flex max-w-full break-words rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
       {children}
     </span>
   );
@@ -393,7 +393,7 @@ function InfoCard({
   compact?: boolean;
 }) {
   return (
-    <article className="rounded-lg border border-border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-md">
+    <article className="min-w-0 rounded-lg border border-border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-md">
       <h3 className="font-display text-lg font-semibold text-primary">{title}</h3>
       <p
         className={`mt-2 leading-relaxed text-muted-foreground ${compact ? "text-xs" : "text-sm"}`}
@@ -406,7 +406,7 @@ function InfoCard({
 
 function TrustCard({ icon, title, body }: { icon: ReactNode; title: string; body: string }) {
   return (
-    <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
+    <article className="min-w-0 rounded-lg border border-border bg-card p-5 shadow-sm">
       <div className="flex items-center gap-3 text-primary">
         <span className="rounded-lg bg-accent/15 p-2">{icon}</span>
         <h3 className="font-display text-lg font-semibold">{title}</h3>
@@ -418,7 +418,7 @@ function TrustCard({ icon, title, body }: { icon: ReactNode; title: string; body
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border bg-background p-3">
+    <div className="min-w-0 rounded-lg border border-border bg-background p-3">
       <dt className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{label}</dt>
       <dd className="mt-1 leading-relaxed text-primary">{value}</dd>
     </div>
