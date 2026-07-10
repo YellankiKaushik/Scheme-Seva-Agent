@@ -68,14 +68,14 @@ function SchemesPage() {
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
-      <main className="mx-auto max-w-6xl px-4 py-12">
-        <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:py-12">
+        <div className="rounded-lg border border-border bg-card p-5 shadow-sm sm:p-6">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
+            <div className="min-w-0">
               <span className="inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
                 Verified scheme catalog
               </span>
-              <h1 className="mt-3 font-display text-3xl font-semibold text-primary sm:text-4xl">
+              <h1 className="mt-3 font-display text-3xl font-semibold leading-tight text-primary sm:text-4xl">
                 Browse {count} Central + Telangana schemes
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
@@ -90,13 +90,13 @@ function SchemesPage() {
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Search by name, ministry, keyword..."
-                  className="w-full rounded-md border border-input bg-background py-2 pl-9 pr-3 text-sm text-primary outline-none transition focus:ring-2 focus:ring-ring sm:w-72"
+                  className="min-h-11 w-full rounded-md border border-input bg-background py-2 pl-9 pr-3 text-sm text-primary outline-none transition focus:ring-2 focus:ring-ring sm:w-72"
                 />
               </label>
               <select
                 value={scope}
                 onChange={(e) => setScope(e.target.value as typeof scope)}
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm font-semibold text-primary outline-none transition focus:ring-2 focus:ring-ring"
+                className="min-h-11 rounded-md border border-input bg-background px-3 py-2 text-sm font-semibold text-primary outline-none transition focus:ring-2 focus:ring-ring"
               >
                 <option value="all">All</option>
                 <option value="central">Central</option>
@@ -110,10 +110,10 @@ function SchemesPage() {
           {filtered.map((s: Scheme) => (
             <article
               key={s.id}
-              className="rounded-lg border border-border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-md"
+              className="min-w-0 rounded-lg border border-border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-md"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
                   <h2 className="font-display text-lg font-semibold text-primary">
                     {s.schemeName}
                   </h2>
@@ -142,10 +142,10 @@ function SchemesPage() {
                   href={s.sourceUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex max-w-full items-center gap-1 break-all font-semibold text-primary underline hover:text-accent"
+                  className="inline-flex max-w-full items-start gap-1 break-all font-semibold text-primary underline hover:text-accent"
                 >
                   <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                  sourceUrl: {s.sourceUrl}
+                  <span>sourceUrl: {s.sourceUrl}</span>
                 </a>
                 <p>lastVerified: {s.lastVerified}</p>
               </div>
