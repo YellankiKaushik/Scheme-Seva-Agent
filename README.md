@@ -2,7 +2,7 @@
 
 **Find government schemes you may likely qualify for - and get alerted when new matches appear.**
 
-[Live Demo](https://scheme-seva-agent.vercel.app/) | [GitHub Repository](https://github.com/YellankiKaushik/Scheme-Seva-Agent) | [Judge Guide](./JUDGES_GUIDE.md) | [Technical Documentation](./TECHNICAL_DOCUMENTATION.md)
+[Live Demo](https://scheme-seva-agent.vercel.app/) | [GitHub Repository](https://github.com/YellankiKaushik/Scheme-Seva-Agent) | [Judge Guide](./docs/JUDGES_GUIDE.md) | [Technical Documentation](./docs/TECHNICAL_DOCUMENTATION.md)
 
 Quick links:
 
@@ -455,8 +455,11 @@ VITE_SUPABASE_PUBLISHABLE_KEY=your_optional_publishable_key
 ```text
 .
 ├── README.md
-├── JUDGES_GUIDE.md
-├── TECHNICAL_DOCUMENTATION.md
+├── docs
+│   ├── JUDGES_GUIDE.md
+│   ├── TECHNICAL_DOCUMENTATION.md
+│   ├── DAVE_Schemeseva_PRD.md
+│   └── VERSION FINALSchemeSeva_MASTER_DOC_FINAL
 ├── .env.example
 ├── package.json
 ├── scripts
@@ -488,8 +491,6 @@ VITE_SUPABASE_PUBLISHABLE_KEY=your_optional_publishable_key
 │       ├── agents
 │       ├── workflows
 │       └── tools
-└── docs
-    └── existing planning/reference docs
 ```
 
 ## Demo Guide For Judges
