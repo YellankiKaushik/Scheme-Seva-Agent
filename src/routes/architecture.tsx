@@ -122,11 +122,11 @@ function ArchitecturePage() {
     <div className="min-h-screen bg-background">
       <SiteHeader />
       <main className="mx-auto max-w-6xl px-4 py-12">
-        <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+        <section className="rounded-lg border border-border bg-card p-5 shadow-sm sm:p-6">
           <span className="inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
             Architecture
           </span>
-          <h1 className="mt-4 font-display text-4xl font-semibold text-primary sm:text-5xl">
+          <h1 className="mt-4 font-display text-3xl font-semibold leading-tight text-primary sm:text-5xl">
             Five agents, one source-grounded workflow.
           </h1>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted-foreground">
@@ -176,8 +176,20 @@ function ArchitecturePage() {
 
         <section className="mt-12">
           <SectionHeader eyebrow="Stack" title="The production proof points" />
-          <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-            <table className="w-full text-left text-sm">
+          <div className="grid gap-3 md:hidden">
+            {layers.map((layer) => (
+              <article
+                key={layer.layer}
+                className="rounded-lg border border-border bg-card p-4 text-sm shadow-sm"
+              >
+                <h3 className="font-display text-base font-semibold text-primary">{layer.layer}</h3>
+                <p className="mt-1 font-semibold text-muted-foreground">{layer.technology}</p>
+                <p className="mt-2 leading-relaxed text-muted-foreground">{layer.purpose}</p>
+              </article>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto rounded-lg border border-border bg-card shadow-sm md:block">
+            <table className="w-full min-w-[720px] text-left text-sm">
               <thead className="bg-parchment/60">
                 <tr>
                   <th className="px-4 py-3 font-semibold text-primary">Layer</th>
@@ -208,7 +220,7 @@ function ArchitecturePage() {
                 key={agent.name}
                 className="rounded-lg border border-border bg-card p-5 shadow-sm"
               >
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <h3 className="font-display text-lg font-semibold text-primary">
                     {index + 1}. {agent.name}
                   </h3>
