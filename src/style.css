@@ -108,6 +108,12 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    overflow-x: hidden;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
   }
 
   h1,
@@ -116,6 +122,10 @@
   .font-display {
     font-family: var(--font-display);
     letter-spacing: 0;
+  }
+
+  code {
+    overflow-wrap: anywhere;
   }
 }
 
@@ -131,6 +141,7 @@
     padding: 0.75rem 1.1rem;
     font-size: 0.95rem;
     font-weight: 700;
+    min-height: 2.75rem;
     box-shadow: 0 8px 20px oklch(0.24 0.06 265 / 12%);
     transition:
       transform 160ms ease,
@@ -155,6 +166,7 @@
     padding: 0.72rem 1.05rem;
     font-size: 0.95rem;
     font-weight: 700;
+    min-height: 2.75rem;
     transition:
       border-color 160ms ease,
       background-color 160ms ease,
@@ -178,6 +190,7 @@
     padding: 0.75rem 1.05rem;
     font-size: 0.9rem;
     font-weight: 800;
+    min-height: 2.75rem;
     transition:
       opacity 160ms ease,
       transform 160ms ease;
@@ -200,6 +213,7 @@
     padding: 0.72rem 1rem;
     font-size: 0.9rem;
     font-weight: 700;
+    min-height: 2.75rem;
     transition:
       background-color 160ms ease,
       transform 160ms ease;
@@ -228,6 +242,7 @@
   .prose-scheme p {
     margin: 0.5rem 0;
     line-height: 1.6;
+    overflow-wrap: anywhere;
   }
 
   .prose-scheme ol,
@@ -238,11 +253,13 @@
 
   .prose-scheme li {
     margin: 0.25rem 0;
+    overflow-wrap: anywhere;
   }
 
   .prose-scheme a {
     color: var(--color-accent);
     text-decoration: underline;
+    overflow-wrap: anywhere;
   }
 
   .prose-scheme strong {
@@ -252,5 +269,14 @@
   .prose-scheme hr {
     margin: 1.5rem 0;
     border-color: var(--color-border);
+  }
+
+  @media (max-width: 640px) {
+    .ss-btn-primary,
+    .ss-btn-secondary,
+    .ss-btn-accent,
+    .ss-btn-on-dark {
+      width: 100%;
+    }
   }
 }
