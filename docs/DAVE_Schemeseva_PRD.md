@@ -5,8 +5,8 @@ This file is retained as an archive pointer for an earlier planning draft.
 The current implementation documentation is now maintained in:
 
 - [README.md](../README.md)
-- [TECHNICAL_DOCUMENTATION.md](../TECHNICAL_DOCUMENTATION.md)
-- [JUDGES_GUIDE.md](../JUDGES_GUIDE.md)
+- [TECHNICAL_DOCUMENTATION.md](./TECHNICAL_DOCUMENTATION.md)
+- [JUDGES_GUIDE.md](./JUDGES_GUIDE.md)
 
 Use those files as the source of truth for judging, mentoring, setup, and technical review.
 

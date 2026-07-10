@@ -58,7 +58,7 @@ SchemeSeva is a TypeScript-native civic AI agent for source-grounded government 
 
 ## Supporting Docs
 
-- [README.md](./README.md) - judge-friendly project overview.
+- [README.md](../README.md) - judge-friendly project overview.
 - [TECHNICAL_DOCUMENTATION.md](./TECHNICAL_DOCUMENTATION.md) - detailed technical report draft.
 - `/architecture` - in-app architecture explanation.
 - `/debug/integrations` - live provider status without secrets.
