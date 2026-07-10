@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { BellRing, FileText, RotateCcw, Search, Sparkles } from "lucide-react";
@@ -465,7 +465,7 @@ function AgentApp() {
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
-      <main className="mx-auto max-w-6xl px-4 py-10">
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
         {stage === "intake" && (
           <section className="space-y-8">
             <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr] lg:items-end">
@@ -473,7 +473,7 @@ function AgentApp() {
                 <span className="inline-flex rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
                   SchemeSeva agent
                 </span>
-                <h1 className="mt-4 font-display text-3xl font-semibold text-primary sm:text-5xl">
+                <h1 className="mt-4 font-display text-3xl font-semibold leading-tight text-primary sm:text-5xl">
                   Build a profile, then run the five-agent workflow.
                 </h1>
                 <p className="mt-3 max-w-3xl text-base leading-relaxed text-muted-foreground">
@@ -509,7 +509,7 @@ function AgentApp() {
                   key={demo.label}
                   type="button"
                   onClick={() => applyDemo(demo.form)}
-                  className="rounded-lg border border-border bg-card p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-accent hover:bg-parchment/60 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="min-h-28 rounded-lg border border-border bg-card p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-accent hover:bg-parchment/60 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   <span className="font-display text-base font-semibold text-primary">
                     {demo.label}
@@ -555,12 +555,12 @@ function AgentApp() {
                     )}
                     {step === 4 && <StepReview form={form} errors={errors} update={updateField} />}
                   </div>
-                  <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+                  <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <button
                       type="button"
                       onClick={backStep}
                       disabled={step === 1}
-                      className="rounded-md border border-border bg-card px-4 py-2 text-sm font-semibold text-primary transition hover:bg-secondary disabled:opacity-40"
+                      className="inline-flex min-h-11 w-full items-center justify-center rounded-md border border-border bg-card px-4 py-2 text-sm font-semibold text-primary transition hover:bg-secondary disabled:opacity-40 sm:w-auto"
                     >
                       Back
                     </button>
@@ -568,7 +568,7 @@ function AgentApp() {
                       <button
                         type="button"
                         onClick={continueStep}
-                        className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95"
+                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95 sm:w-auto"
                       >
                         <Sparkles className="h-4 w-4" />
                         Continue
@@ -577,7 +577,7 @@ function AgentApp() {
                       <button
                         type="button"
                         onClick={submitStructuredForm}
-                        className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95"
+                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95 sm:w-auto"
                       >
                         <Search className="h-4 w-4" />
                         Find schemes
@@ -600,13 +600,13 @@ function AgentApp() {
                     onChange={(e) => setText(e.target.value)}
                     rows={7}
                     placeholder="Example: 48-year-old SC male farmer from Nalgonda, Telangana. 4 acres land, annual income 90000, has Aadhaar and bank account, no BPL."
-                    className="mt-4 w-full rounded-lg border border-input bg-background p-4 text-base text-primary outline-none focus:ring-2 focus:ring-ring"
+                    className="mt-4 w-full resize-y rounded-lg border border-input bg-background p-4 text-base text-primary outline-none focus:ring-2 focus:ring-ring"
                   />
                   <button
                     type="button"
                     onClick={handleNaturalLanguage}
                     disabled={text.trim().length < 10}
-                    className="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95 disabled:opacity-50"
+                    className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95 disabled:opacity-50 sm:w-auto"
                   >
                     <FileText className="h-4 w-4" />
                     Extract profile
@@ -652,6 +652,17 @@ function AgentApp() {
                 <span className="rounded-full bg-accent/15 px-3 py-1 text-xs font-semibold text-primary">
                   {report.eligible.length} likely matches
                 </span>
+              </div>
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <Link to="/" className="ss-btn-secondary">
+                  Back to homepage
+                </Link>
+                <Link to="/schemes" className="ss-btn-secondary">
+                  Explore schemes
+                </Link>
+                <Link to="/debug/integrations" className="ss-btn-secondary">
+                  Check integrations
+                </Link>
               </div>
             </div>
 
@@ -743,7 +754,7 @@ function AgentApp() {
                   type="button"
                   onClick={handleVigilance}
                   disabled={vigilanceLoading}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95 disabled:opacity-50"
+                  className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95 disabled:opacity-50 sm:w-auto"
                 >
                   <BellRing className="h-4 w-4" />
                   {vigilanceLoading ? "Scanning..." : "Run vigilance scan"}
@@ -786,14 +797,17 @@ function AgentApp() {
               )}
             </div>
 
-            <div className="flex justify-end">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+              <Link to="/schemes" className="ss-btn-secondary">
+                View schemes
+              </Link>
               <button
                 type="button"
                 onClick={reset}
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-primary transition hover:bg-secondary"
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-primary transition hover:bg-secondary sm:w-auto"
               >
                 <RotateCcw className="h-4 w-4" />
-                Start over
+                Try another profile
               </button>
             </div>
           </section>
@@ -817,7 +831,7 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+      className={`min-h-10 rounded-md px-3 py-2 text-sm font-semibold transition ${
         active
           ? "bg-primary text-primary-foreground shadow-sm"
           : "text-muted-foreground hover:bg-secondary hover:text-primary"
@@ -1060,9 +1074,14 @@ function StepReview({
         <h3 className="font-display text-lg font-semibold text-primary">Review details</h3>
         <dl className="mt-3 grid gap-2 text-sm">
           {rows.map(([label, value]) => (
-            <div key={label} className="flex justify-between gap-4 border-b border-border/50 py-1">
+            <div
+              key={label}
+              className="grid gap-1 border-b border-border/50 py-1 sm:grid-cols-[1fr_auto] sm:gap-4"
+            >
               <dt className="text-muted-foreground">{label}</dt>
-              <dd className="text-right font-medium capitalize text-primary">{value}</dd>
+              <dd className="min-w-0 break-words font-medium capitalize text-primary sm:text-right">
+                {value}
+              </dd>
             </div>
           ))}
         </dl>
@@ -1097,7 +1116,7 @@ function Segmented({
           key={option}
           type="button"
           onClick={() => onChange(option)}
-          className={`rounded-md border px-3 py-2 text-sm font-semibold capitalize transition ${
+          className={`min-h-10 rounded-md border px-3 py-2 text-sm font-semibold capitalize transition ${
             value === option
               ? "border-primary bg-primary text-primary-foreground"
               : "border-border bg-card text-primary hover:bg-secondary"
@@ -1112,7 +1131,7 @@ function Segmented({
 
 function StatusPill({ label }: { label: string }) {
   return (
-    <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold text-primary shadow-sm">
+    <span className="max-w-full break-words rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold text-primary shadow-sm">
       {label}
     </span>
   );
@@ -1141,7 +1160,7 @@ function AlertBanner({
         <h4 className="font-display font-semibold text-primary">{alert.schemeName}</h4>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{alert.reason}</p>
-      <p className="mt-2 text-xs text-muted-foreground">
+      <p className="mt-2 break-words text-xs text-muted-foreground">
         Safety: {alert.safetyProvider ?? alert.validationProvider ?? "fallback"} - Retrieval:{" "}
         {alert.retrievalProvider ?? "session memory"} - Memory: {alert.memoryProvider ?? "fallback"}
       </p>
@@ -1150,4 +1169,4 @@ function AlertBanner({
 }
 
 const inputClass =
-  "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-primary outline-none transition focus:ring-2 focus:ring-ring";
+  "min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-primary outline-none transition focus:ring-2 focus:ring-ring";
