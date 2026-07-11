@@ -82,6 +82,24 @@ export interface DiscoveryReport {
     provider: string;
   };
   retrievalProvider: string;
+  reasoningProvider?: "featherless" | "openrouter-fallback" | "local-fallback";
+  reasoningAttemptedProviders?: Array<"featherless" | "openrouter-fallback" | "local-fallback">;
+  featherlessStatus?:
+    | "not_configured"
+    | "disabled"
+    | "timeout"
+    | "http_401"
+    | "http_403"
+    | "http_404"
+    | "http_429"
+    | "http_500"
+    | "http_503"
+    | "empty_response"
+    | "parse_error"
+    | "incomplete_output"
+    | "success";
+  fallbackReason?: string;
+  featherlessErrorCategory?: DiscoveryReport["featherlessStatus"];
   retrievalDiagnostics?: import("./qdrantSearch").RetrievalDiagnostics;
   memoryProvider?: "qdrant" | "local" | "optional-supabase" | "unavailable";
   memoryWrite?: "success" | "failed" | "skipped-local";
