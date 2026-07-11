@@ -6,10 +6,16 @@ import { langfuseStatus } from "./observability";
 import { upstashStatus, type RateLimitStatus } from "./ratelimit";
 import { embeddingsConfigured, embeddingsProvider } from "./embeddings";
 import { latestLocalDiscoveryRun, latestLocalVigilanceRun } from "./localSessionStore";
+import {
+  checkFeatherlessHealth,
+  getFeatherlessConfig,
+  type FeatherlessHealthStatus,
+} from "./featherless";
 
 const STATUS_TIMEOUTS = {
   qdrant: 3000,
   enkrypt: 3000,
+  featherless: 8000,
   upstash: 3000,
   supabase: 1500,
 } as const;
@@ -108,6 +114,26 @@ function normalizeEnkrypt(status: EnkryptStatus): EnkryptStatus {
   };
 }
 
+function featherlessFallback(error: string): FeatherlessHealthStatus {
+  const cfg = getFeatherlessConfig();
+  return {
+    ...cfg,
+    baseUrl: hostOnly(cfg.baseUrl) ?? cfg.baseUrl,
+    connected: false,
+    reachable: false,
+    status: cfg.configured ? "unreachable" : "not-configured",
+    error,
+  };
+}
+
+function normalizeFeatherless(status: FeatherlessHealthStatus): FeatherlessHealthStatus {
+  return {
+    ...status,
+    baseUrl: hostOnly(status.baseUrl) ?? status.baseUrl,
+    error: status.error ? sanitizeMessage(status.error) : undefined,
+  };
+}
+
 function upstashFallback(error: string): RateLimitStatus {
   const configured = Boolean(
     process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN,
@@ -140,13 +166,19 @@ function normalizeUpstash(status: RateLimitStatus): RateLimitStatus {
 }
 
 export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(async () => {
-  const [qd, en, upstash] = await Promise.all([
+  const [qd, en, featherless, upstash] = await Promise.all([
     withTimeout("Qdrant", STATUS_TIMEOUTS.qdrant, qdrantStatus(), qdrantFallback).then(
       normalizeQdrant,
     ),
     withTimeout("Enkrypt", STATUS_TIMEOUTS.enkrypt, enkryptStatus(), enkryptFallback).then(
       normalizeEnkrypt,
     ),
+    withTimeout(
+      "Featherless",
+      STATUS_TIMEOUTS.featherless,
+      checkFeatherlessHealth(),
+      featherlessFallback,
+    ).then(normalizeFeatherless),
     withTimeout("Upstash", STATUS_TIMEOUTS.upstash, upstashStatus(), upstashFallback).then(
       normalizeUpstash,
     ),
@@ -205,6 +237,7 @@ export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(a
 
   const qdrantPrimary = qdrantConfigured() && qd.reachable === true;
   const enkryptPrimary = enkryptConfigured() && en.detectPayloadValid === true;
+  const featherlessPrimary = featherless.configured && featherless.connected === true;
   const langfuse = langfuseStatus();
   const localMemoryAvailable = true;
   const memoryProvider = qdrantPrimary
@@ -226,6 +259,11 @@ export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(a
       ...en,
       primary: enkryptPrimary,
       fallback: "OpenRouter-based safety validator or local passthrough",
+    },
+    featherless: {
+      ...featherless,
+      primary: featherlessPrimary,
+      fallback: "OpenRouter/local grounded fallback",
     },
     supabase,
     openrouter: {
@@ -255,6 +293,11 @@ export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(a
         ? "qdrant-vector"
         : "qdrant-keyword"
       : "fallback-local-keyword",
+    currentReasoningProvider: featherlessPrimary
+      ? "featherless"
+      : process.env.OPENROUTER_API_KEY
+        ? "openrouter-fallback"
+        : "local-fallback",
     currentSafetyProvider: enkryptPrimary
       ? "enkrypt"
       : process.env.OPENROUTER_API_KEY
@@ -278,6 +321,14 @@ export const getIntegrationsStatus = createServerFn({ method: "GET" }).handler(a
           : en.healthConnected === true
             ? "health-connected-detect-invalid"
             : enkryptConfigured()
+              ? "configured-unreachable"
+              : "not-configured",
+      featherless:
+        featherless.connected === true
+          ? "live-connected"
+          : featherless.status === "timeout"
+            ? "timeout"
+            : featherless.configured
               ? "configured-unreachable"
               : "not-configured",
       supabase: supabase.reachable
