@@ -6,7 +6,7 @@
 
 **Tagline:** Find government schemes you may likely qualify for - and get alerted when new matches appear.
 
-SchemeSeva is a TypeScript-native civic AI agent for source-grounded government scheme discovery. It uses a guided no-login demo flow, 28 verified Central + Telangana schemes, Qdrant retrieval and memory, Enkrypt AI validation, and a Vigilance Agent that can alert when a new matching scheme appears.
+SchemeSeva is a TypeScript-native civic AI agent for source-grounded government scheme discovery. It uses a guided no-login demo flow, 28 verified Central + Telangana schemes, Qdrant retrieval and memory, Featherless AI reasoning, Enkrypt AI validation, and a Vigilance Agent that can alert when a new matching scheme appears.
 
 ## 5-Minute Judging Path
 
@@ -14,14 +14,14 @@ SchemeSeva is a TypeScript-native civic AI agent for source-grounded government 
 2. Click **View 28 schemes** or open `/schemes`.
 3. Confirm the catalog is Central + Telangana and includes `sourceUrl` and `lastVerified`.
 4. Open **Check integrations** or go to `/debug/integrations`.
-5. Confirm cards for Mastra, Qdrant, Enkrypt AI, OpenRouter, Gemini, Langfuse, Upstash, and optional Supabase fallback.
+5. Confirm cards for Mastra, Qdrant, Featherless AI, Enkrypt AI, OpenRouter fallback, Gemini, Langfuse, Upstash, and optional Supabase fallback.
 6. Open **Launch agent** or go to `/app`.
 7. Click the **Farmer** demo profile.
 8. Click **Find schemes**.
-9. Look for report badges such as `Retrieval: qdrant-vector`, `Memory: qdrant`, `Memory write: success`, `Safety: enkrypt`, and `Workflow: adapter` when live providers are active.
+9. Look for report badges such as `Retrieval: qdrant-vector`, `Reasoning: featherless`, `Memory: qdrant`, `Memory write: success`, `Safety: enkrypt`, and `Workflow: adapter` when live providers are active.
 10. Confirm the report includes official source URLs and last verified dates.
 11. Click **Run vigilance scan**.
-12. Confirm the PM-KUSUM alert appears with `Safety: enkrypt` when Enkrypt is active.
+12. Confirm the PM-KUSUM alert appears with `Reasoning: featherless`, `Safety: enkrypt`, `Retrieval: saved-session+scheme-catalog`, and `Memory: qdrant-pending_alerts` when live providers are active.
 
 ## Mandatory Stack Proof
 
@@ -31,8 +31,9 @@ SchemeSeva is a TypeScript-native civic AI agent for source-grounded government 
 | Qdrant retrieval | `/debug/integrations` Qdrant card and `Retrieval: qdrant-vector` badge |
 | Qdrant memory | `Memory: qdrant`, `Memory write: success`, and `citizen_sessions` integration |
 | Qdrant pending alerts | Vigilance scan output and `pending_alerts` memory diagnostics |
+| Featherless AI reasoning | `/debug/integrations` Featherless card, `Reasoning: featherless` report badge, and Vigilance alert reason |
 | Enkrypt AI validation | `/debug/integrations` Enkrypt card and `Safety: enkrypt` badges |
-| OpenRouter reasoning | `/debug/integrations` OpenRouter card |
+| OpenRouter fallback | `/debug/integrations` OpenRouter card and fallback badge behavior |
 | Gemini embeddings | `/debug/integrations` Gemini card and Qdrant vector retrieval path |
 | Langfuse observability | `/debug/integrations` Langfuse card |
 | Upstash rate limiting | `/debug/integrations` Upstash card |
@@ -51,6 +52,7 @@ SchemeSeva is a TypeScript-native civic AI agent for source-grounded government 
 ## Why It Is Not Just A Chatbot
 
 - It retrieves verified schemes through Qdrant.
+- It reasons over report explanations and Vigilance alert reasons through Featherless AI, with OpenRouter/local fallback.
 - It remembers session context through Qdrant memory.
 - It evaluates eligibility rules deterministically.
 - It validates outputs through Enkrypt AI.
