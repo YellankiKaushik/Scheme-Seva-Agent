@@ -286,6 +286,7 @@ function AgentApp() {
       schemeName: string;
       reason: string;
       urgency: string;
+      reasoningProvider?: string;
       safetyProvider?: string;
       validationProvider?: string;
       retrievalProvider?: string;
@@ -668,11 +669,21 @@ function AgentApp() {
 
             <div className="flex flex-wrap gap-2">
               <StatusPill label={`Retrieval: ${report.retrievalProvider}`} />
+              <StatusPill label={`Reasoning: ${report.reasoningProvider ?? "local-fallback"}`} />
+              {report.featherlessStatus ? (
+                <StatusPill label={`Featherless: ${report.featherlessStatus}`} />
+              ) : null}
               <StatusPill label={`Memory: ${report.memoryProvider ?? "local"}`} />
               <StatusPill label={`Memory write: ${report.memoryWrite ?? "skipped-local"}`} />
               <StatusPill label={`Safety: ${report.safety.provider}`} />
               <StatusPill label={`Workflow: ${report.workflowMode ?? "adapter"}`} />
             </div>
+
+            {report.fallbackReason && report.reasoningProvider !== "featherless" ? (
+              <p className="text-xs text-muted-foreground">
+                Reasoning fallback: {report.fallbackReason}
+              </p>
+            ) : null}
 
             {report.safety.status === "safe" ? (
               <div className="rounded-lg border border-success/40 bg-success/10 px-4 py-3 text-sm font-medium text-success">
@@ -1144,6 +1155,7 @@ function AlertBanner({
     schemeName: string;
     reason: string;
     urgency: string;
+    reasoningProvider?: string;
     safetyProvider?: string;
     validationProvider?: string;
     retrievalProvider?: string;
@@ -1161,7 +1173,8 @@ function AlertBanner({
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{alert.reason}</p>
       <p className="mt-2 break-words text-xs text-muted-foreground">
-        Safety: {alert.safetyProvider ?? alert.validationProvider ?? "fallback"} - Retrieval:{" "}
+        Reasoning: {alert.reasoningProvider ?? "local-fallback"} - Safety:{" "}
+        {alert.safetyProvider ?? alert.validationProvider ?? "fallback"} - Retrieval:{" "}
         {alert.retrievalProvider ?? "session memory"} - Memory: {alert.memoryProvider ?? "fallback"}
       </p>
     </div>
