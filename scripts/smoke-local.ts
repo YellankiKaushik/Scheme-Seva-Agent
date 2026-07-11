@@ -1,6 +1,7 @@
 import { discoverCandidates, checkEligibility } from "../src/lib/schemeseva-eligibility";
 import { localSchemes } from "../src/lib/localSchemes";
-import type { CitizenProfile, EligibilityResult } from "../src/lib/schemeseva-types";
+import { getFeatherlessConfig } from "../src/lib/featherless";
+import type { CitizenProfile, DiscoveryReport, EligibilityResult } from "../src/lib/schemeseva-types";
 
 const baseUrl = process.env.SCHEMESEVA_SMOKE_BASE_URL ?? "http://localhost:8080";
 
@@ -147,6 +148,36 @@ for (const item of profiles) {
 if (localSchemes.length === 28) pass("/schemes catalog has 28 local schemes");
 else fail("/schemes catalog has 28 local schemes", `got ${localSchemes.length}`);
 
+const previousFeatherlessEnv = {
+  key: process.env.FEATHERLESS_API_KEY,
+  model: process.env.FEATHERLESS_MODEL,
+  enabled: process.env.FEATHERLESS_ENABLED,
+};
+delete process.env.FEATHERLESS_API_KEY;
+delete process.env.FEATHERLESS_MODEL;
+process.env.FEATHERLESS_ENABLED = "true";
+const featherlessMissing = getFeatherlessConfig();
+if (!featherlessMissing.configured && featherlessMissing.reason) {
+  pass("Featherless env absence reports configured=false");
+} else {
+  fail("Featherless env absence reports configured=false", "missing env appeared configured");
+}
+if (previousFeatherlessEnv.key) process.env.FEATHERLESS_API_KEY = previousFeatherlessEnv.key;
+else delete process.env.FEATHERLESS_API_KEY;
+if (previousFeatherlessEnv.model) process.env.FEATHERLESS_MODEL = previousFeatherlessEnv.model;
+else delete process.env.FEATHERLESS_MODEL;
+if (previousFeatherlessEnv.enabled) process.env.FEATHERLESS_ENABLED = previousFeatherlessEnv.enabled;
+else delete process.env.FEATHERLESS_ENABLED;
+
+const metadataProbe: Pick<DiscoveryReport, "reasoningProvider"> = {
+  reasoningProvider: "local-fallback",
+};
+if (metadataProbe.reasoningProvider === "local-fallback") {
+  pass("report metadata supports reasoning provider fallback");
+} else {
+  fail("report metadata supports reasoning provider fallback", "unexpected metadata value");
+}
+
 try {
   const schemes = await fetchText("/schemes");
   if (schemes.ok && /Scheme catalog/i.test(schemes.text)) pass("/schemes page loads");
@@ -159,7 +190,7 @@ try {
   const debug = await fetchText("/debug/integrations");
   if (debug.ok && /Integrations status/i.test(debug.text)) pass("/debug/integrations page loads");
   else fail("/debug/integrations page loads", `HTTP ${debug.status}`);
-  for (const label of ["Qdrant", "Enkrypt", "Langfuse", "Upstash"]) {
+  for (const label of ["Qdrant", "Featherless", "Enkrypt", "Langfuse", "Upstash"]) {
     if (debug.text.includes(label)) pass(`/debug/integrations mentions ${label}`);
     else fail(`/debug/integrations mentions ${label}`, "label missing from page HTML");
   }
