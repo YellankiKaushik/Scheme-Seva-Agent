@@ -36,8 +36,9 @@ const layers = [
   },
   {
     layer: "Reasoning",
-    technology: "OpenRouter",
-    purpose: "Profile extraction and report generation, with local grounded fallback in demo mode.",
+    technology: "Featherless AI + OpenRouter fallback",
+    purpose:
+      "Featherless powers open-source model reasoning for reports and Vigilance alert reasons; OpenRouter and local grounded logic remain fallbacks.",
   },
   {
     layer: "Embeddings",
@@ -111,6 +112,7 @@ const pipeline = [
 const judgeChecks = [
   ["Mastra", "Look for workflow mode adapter and the five typed agents in this page."],
   ["Qdrant retrieval", "Run the Farmer demo and confirm Retrieval: qdrant-vector."],
+  ["Featherless AI", "Confirm Reasoning: featherless when Featherless is configured."],
   ["Qdrant memory", "Confirm Memory: qdrant and Memory write: success after a report."],
   ["Enkrypt AI", "Confirm Safety: enkrypt on reports and Vigilance alerts."],
   ["Collections", "schemeseva_schemes, citizen_sessions, and pending_alerts."],
@@ -131,8 +133,10 @@ function ArchitecturePage() {
           </h1>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted-foreground">
             SchemeSeva is a TypeScript-native civic AI app built on Mastra-style orchestration,
-            Qdrant retrieval and memory, Gemini embeddings, OpenRouter reasoning, Enkrypt
-            validation, Langfuse tracing, and Upstash rate limiting.
+            Qdrant retrieval and memory, Gemini embeddings, Featherless AI reasoning, OpenRouter
+            fallback, Enkrypt validation, Langfuse tracing, and Upstash rate limiting.
+            The core report path is simple: Qdrant retrieves, Featherless reasons, and Enkrypt
+            validates before display.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link to="/app" className="ss-btn-primary">
