@@ -56,7 +56,7 @@ SchemeSeva is not a single prompt behind a chat box. It coordinates retrieval, r
 | Agent capability | SchemeSeva implementation |
 | --- | --- |
 | Retrieves | Qdrant semantic retrieval searches the verified scheme catalog. |
-| Reasons | OpenRouter-backed report generation and deterministic eligibility rules explain likely matches. |
+| Reasons | Featherless AI is the primary open-source reasoning provider for reports and alert reasons; OpenRouter remains fallback. |
 | Remembers | Qdrant session memory stores profile context and previously found schemes by session key. |
 | Evaluates | Enkrypt AI validates reports and Vigilance alerts before citizen-facing display. |
 | Acts | The Vigilance Agent scans saved sessions and creates proactive alerts for unseen matches. |
@@ -77,7 +77,11 @@ The `/schemes` route displays 28 verified Central + Telangana schemes. Each sche
 
 ### Source-Grounded Reports
 
-Discovery reports include likely matches, reasons, document lists, next steps, source links, and last verified dates. The report prompt explicitly requires "likely eligible" wording and a guidance-only disclaimer.
+Discovery reports include likely matches, reasons, document lists, next steps, source links, and last verified dates. Featherless AI generates the primary report explanation when configured, with OpenRouter and local grounded fallback behind it. The report prompt explicitly requires "likely eligible" wording and a guidance-only disclaimer.
+
+### Featherless AI Reasoning
+
+Featherless AI is the primary open-source reasoning provider for report explanations and Vigilance alert reasons. It uses the OpenAI-compatible `/v1/chat/completions` API through `https://api.featherless.ai/v1`. OpenRouter remains the reasoning fallback, and the existing local grounded fallback keeps demos runnable when live reasoning providers are unavailable.
 
 ### Likely Eligibility Reasoning
 
@@ -93,7 +97,7 @@ When Qdrant and Gemini embeddings are configured, SchemeSeva creates profile que
 
 ### Qdrant Persistent Memory
 
-After discovery, SchemeSeva writes safe profile context, found schemes, retrieval provider, safety provider, and summary metadata to Qdrant session memory. The Vigilance Agent can load that session memory later for scanning.
+After discovery, SchemeSeva writes safe profile context, found schemes, retrieval provider, reasoning provider, safety provider, and summary metadata to Qdrant session memory. The Vigilance Agent can load that session memory later for scanning.
 
 ### Enkrypt AI Safety Validation
 
@@ -101,11 +105,11 @@ Citizen-facing discovery reports and Vigilance alerts are validated through Enkr
 
 ### Vigilance Agent Proactive Alerts
 
-The Vigilance Agent scans saved session context against unseen schemes and emits one validated alert when a new likely match appears. In demo mode, the Farmer profile can surface a PM-KUSUM alert with a `Safety: enkrypt` badge when Enkrypt is active.
+The Vigilance Agent scans saved session context against unseen schemes and emits one validated alert when a new likely match appears. Featherless writes the short alert reason when configured, then Enkrypt validates it before display and Qdrant `pending_alerts` storage. In demo mode, the Farmer profile can surface a PM-KUSUM alert with `Reasoning: featherless` and `Safety: enkrypt` badges when live providers are active.
 
 ### Integration Diagnostics Page
 
-The `/debug/integrations` route shows live status for Mastra workflow mode, Qdrant, Enkrypt AI, OpenRouter, Gemini embeddings, Langfuse, Upstash Redis, demo mode, current retrieval provider, current safety provider, memory provider, and optional Supabase fallback. Error messages are sanitized.
+The `/debug/integrations` route shows live status for Mastra workflow mode, Qdrant, Featherless AI, Enkrypt AI, OpenRouter, Gemini embeddings, Langfuse, Upstash Redis, demo mode, current retrieval provider, current reasoning provider, current safety provider, memory provider, and optional Supabase fallback. Error messages are sanitized.
 
 ### Privacy-Conscious Profile Handling
 
@@ -176,7 +180,8 @@ When active, the UI shows `Safety: enkrypt` badges, and `/debug/integrations` sh
 
 ## Supporting Architecture
 
-- **OpenRouter:** Reasoning provider for natural-language profile extraction and report generation.
+- **Featherless AI:** Primary open-source reasoning provider for report explanations and Vigilance alert reasons.
+- **OpenRouter:** Fallback reasoning provider and profile extraction provider.
 - **Gemini embeddings:** Embedding provider for Qdrant semantic retrieval.
 - **Langfuse:** Observability/tracing adapter for workflow spans and provider status.
 - **Upstash Redis:** Rate limiting for discovery and Vigilance server functions.
@@ -382,10 +387,19 @@ pnpm seed:qdrant
 
 Use `.env.example` as the template. Never commit real secret values.
 
-### OpenRouter
+### Featherless AI
 
 ```bash
-OPENROUTER_API_KEY=your_openrouter_key
+FEATHERLESS_API_KEY=
+FEATHERLESS_BASE_URL=https://api.featherless.ai/v1
+FEATHERLESS_MODEL=
+FEATHERLESS_ENABLED=true
+```
+
+### OpenRouter Fallback
+
+```bash
+OPENROUTER_API_KEY=
 OPENROUTER_MODEL=openrouter/free
 SCHEMESEVA_SITE_URL=http://localhost:3000
 ```
@@ -497,14 +511,14 @@ VITE_SUPABASE_PUBLISHABLE_KEY=your_optional_publishable_key
 
 1. Open the [live demo](https://scheme-seva-agent.vercel.app/).
 2. Open [`/schemes`](https://scheme-seva-agent.vercel.app/schemes) and confirm 28 verified Central + Telangana schemes.
-3. Open [`/debug/integrations`](https://scheme-seva-agent.vercel.app/debug/integrations) and review Mastra, Qdrant, Enkrypt AI, OpenRouter, Gemini, Langfuse, Upstash, and optional Supabase status.
+3. Open [`/debug/integrations`](https://scheme-seva-agent.vercel.app/debug/integrations) and review Mastra, Qdrant, Featherless AI, Enkrypt AI, OpenRouter, Gemini, Langfuse, Upstash, and optional Supabase status.
 4. Open [`/app`](https://scheme-seva-agent.vercel.app/app).
 5. Click the **Farmer** demo profile.
 6. Click **Find schemes**.
-7. Verify badges such as `Retrieval: qdrant-vector`, `Memory: qdrant`, `Memory write: success`, `Safety: enkrypt`, and `Workflow: adapter` when the live providers are active.
+7. Verify badges such as `Retrieval: qdrant-vector`, `Reasoning: featherless`, `Memory: qdrant`, `Memory write: success`, `Safety: enkrypt`, and `Workflow: adapter` when the live providers are active.
 8. Confirm the report includes `sourceUrl` and `lastVerified`.
 9. Click **Run vigilance scan**.
-10. Verify the PM-KUSUM alert appears with `Safety: enkrypt` when Enkrypt is active.
+10. Verify the PM-KUSUM alert appears with `Reasoning: featherless`, `Safety: enkrypt`, and `Memory: qdrant-pending_alerts` when live providers are active.
 
 ## Evaluation Criteria Mapping
 
