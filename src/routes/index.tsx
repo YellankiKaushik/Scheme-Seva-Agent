@@ -73,6 +73,7 @@ const features = [
     "Focused Central + Telangana catalog, without overclaiming national coverage.",
   ],
   ["Qdrant semantic retrieval", "Finds relevant schemes beyond exact keyword matching."],
+  ["Featherless reasoning", "Uses open-source model reasoning for reports and alert reasons."],
   ["Enkrypt safety validation", "Validates reports and Vigilance alerts before display."],
   ["Proactive Vigilance alerts", "Demonstrates watch-after-search behavior for matching schemes."],
   ["Source-grounded reports", "Every result keeps sourceUrl and lastVerified visible."],
@@ -120,8 +121,9 @@ const personas = [
 const stack = [
   ["Mastra-style workflow", "Typed multi-agent orchestration"],
   ["Qdrant", "Vector retrieval, session memory, and pending alerts"],
+  ["Featherless AI", "Primary open-source reasoning for reports and alerts"],
   ["Enkrypt AI", "Report and alert validation"],
-  ["OpenRouter", "Reasoning for profile and report steps"],
+  ["OpenRouter", "Fallback reasoning provider"],
   ["Gemini", "Embeddings for semantic search"],
   ["Langfuse", "Observability traces"],
   ["Upstash Redis", "Rate limiting"],
