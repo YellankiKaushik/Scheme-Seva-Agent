@@ -28,8 +28,22 @@ import {
 import { localSchemes } from "./localSchemes";
 import { getLocalSession, saveLocalAlert, saveLocalSession } from "./localSessionStore";
 import { qdrantConfig, qdrantConfigured } from "./qdrant";
+import {
+  buildReportGenerationInput,
+  type FeatherlessErrorCategory,
+  generateReportWithFeatherless,
+  generateVigilanceReasonWithFeatherless,
+  isFeatherlessConfigured,
+} from "./featherless";
 
 const MODEL = process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-exp:free";
+type ReasoningProvider = NonNullable<DiscoveryReport["reasoningProvider"]>;
+type ReasoningMetadata = {
+  reasoningAttemptedProviders: ReasoningProvider[];
+  featherlessStatus: FeatherlessErrorCategory;
+  fallbackReason?: string;
+  featherlessErrorCategory?: FeatherlessErrorCategory;
+};
 
 function getGateway() {
   const key = process.env.OPENROUTER_API_KEY;
@@ -201,6 +215,7 @@ function generateLocalReport(
   profile: CitizenProfile,
   schemes: Scheme[],
   eligibleResults: EligibilityResult[],
+  reasoningSummary?: string,
 ) {
   if (eligibleResults.length === 0) {
     return "## No strong matches found\n\nBased on the details shared, we could not find schemes you are likely eligible for from the current verified catalog.\n\nThis is guidance based on the information you shared. Please confirm final eligibility on the official portal or with a local government office.";
@@ -225,7 +240,10 @@ Application: ${scheme?.applicationUrl ?? result.sourceUrl}
 Source: ${result.sourceUrl} · Last verified: ${result.lastVerified}
 Confidence: ${result.confidence}`;
   });
-  return `## Schemes you are likely eligible for\n\n${sections.join("\n\n")}\n\nThis is guidance based on the information you shared. Please confirm final eligibility on the official portal or with a local government office.`;
+  const summarySection = reasoningSummary
+    ? `\n\n### Reasoning summary\n\n${reasoningSummary}`
+    : "";
+  return `## Schemes you are likely eligible for${summarySection}\n\n${sections.join("\n\n")}\n\nThis is guidance based on the information you shared. Please confirm final eligibility on the official portal or with a local government office.`;
 }
 
 function looksLikeSafetyVerdict(text: string) {
@@ -243,6 +261,17 @@ function isCompleteSchemeReport(text: string, schemes: Scheme[]) {
   const hasLastVerified =
     /last verified\s*:/i.test(text) || schemes.some((scheme) => text.includes(scheme.lastVerified));
   return hasSchemeName && hasSource && hasLastVerified;
+}
+
+function safeReasoningSummary(text: string): string | null {
+  const cleaned = text
+    .replace(/```[a-z]*|```/gi, "")
+    .replace(/\bguaranteed\b|\bapproved\b|\bfinal eligibility\b/gi, "likely eligible")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (looksLikeSafetyVerdict(cleaned)) return null;
+  if (cleaned.length < 30) return null;
+  return cleaned.slice(0, 900);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -427,68 +456,121 @@ export const runDiscovery = createServerFn({ method: "POST" })
 
     // Report Agent
     let reportMarkdown = "";
+    let reasoningProvider: ReasoningProvider = "local-fallback";
+    const reasoningAttemptedProviders: ReasoningProvider[] = [];
+    let featherlessStatus: FeatherlessErrorCategory = "not_configured";
+    let fallbackReason: string | undefined;
+
     if (eligibleResults.length === 0) {
       reportMarkdown =
-        "## No strong matches found\n\nBased on the details shared, we couldn't find schemes you likely qualify for from our current catalog of 28 verified central + Telangana schemes.\n\nPlease share more details about your occupation, income, or state so we can search again.";
+        "## No strong matches found\n\nBased on the details shared, we could not find schemes you likely qualify for from our current catalog of 28 verified central + Telangana schemes.\n\nThis is guidance based on the information you shared. Please confirm final eligibility on the official portal or with a local government office.";
     } else {
       const gateway = getGateway();
-      const reportSpan = gateway
-        ? trace.generation("Report Agent", {
-            provider: "openrouter",
-            model: MODEL,
-            eligibleCount: eligibleResults.length,
-          })
-        : trace.span("Report Agent", {
-            provider: "local-demo",
-            eligibleCount: eligibleResults.length,
-          });
-      if (!gateway) {
-        reportMarkdown = generateLocalReport(profile, eligibleSchemes, eligibleResults);
-        reportSpan.end({ schemes: eligibleResults.length, provider: "local-demo" });
-      } else {
-        const schemeContext = eligibleSchemes
-          .map((s, i) => {
-            const r = eligibleResults[i];
-            return `#${i + 1} ${s.schemeName} [${r.confidence}]
-Ministry: ${s.ministry}
-Benefit: ${s.benefitAmount}
-Why likely eligible: ${r.reasons.join(" ")}
-Missing docs: ${r.missingDocuments.length ? r.missingDocuments.join(", ") : "None"}
-Application: ${s.applicationUrl ?? s.sourceUrl}
-Source: ${s.sourceUrl}
-Last verified: ${s.lastVerified}
-Steps: ${s.applicationSteps.join(" | ")}
-Documents needed: ${s.documentsRequired.join(", ")}`;
-          })
-          .join("\n\n---\n\n");
+      reasoningAttemptedProviders.push("featherless");
+      const featherlessSpan = trace.generation("Report Agent", {
+        provider: "featherless",
+        configured: isFeatherlessConfigured(),
+        eligibleCount: eligibleResults.length,
+      });
+      const featherless = await generateReportWithFeatherless(
+        profile,
+        eligibleSchemes,
+        eligibleResults,
+      );
+      const featherlessSummary = featherless.ok ? safeReasoningSummary(featherless.text) : null;
 
-        const generation = await generateText({
-          model: gateway(MODEL),
-          system:
-            "You are the Report Agent for SchemeSeva. Generate a plain-language markdown report for an Indian citizen about government schemes they may qualify for. " +
-            "Rules: (1) Always use the phrase 'likely eligible' — never claim guaranteed eligibility. " +
-            "(2) Use 8th-grade reading level, no bureaucratic jargon. " +
-            "(3) For each scheme use this exact structure: ### N. <Scheme Name> — <benefit>, then two-sentence 'Why you likely qualify', then a numbered 'Steps to apply' list, then a 'Documents needed' list, then a line 'Source: <url> · Last verified: <date>'. " +
-            "(4) Never invent details. Only use the data provided. " +
-            "(5) End with exactly one disclaimer paragraph: 'This is guidance based on the information you shared. Please confirm final eligibility on the official portal or with a local government office.'",
-          prompt: `Citizen profile: ${JSON.stringify(profile)}\n\nSchemes to include, in order:\n\n${schemeContext}\n\nGenerate the report now.`,
-        });
-        reportMarkdown = generation.text;
-        if (!isCompleteSchemeReport(reportMarkdown, eligibleSchemes)) {
-          reportMarkdown = generateLocalReport(profile, eligibleSchemes, eligibleResults);
-        }
-        reportSpan.end({
+      if (featherlessSummary) {
+        reportMarkdown = generateLocalReport(
+          profile,
+          eligibleSchemes,
+          eligibleResults,
+          featherlessSummary,
+        );
+        reasoningProvider = "featherless";
+        featherlessStatus = "success";
+        featherlessSpan.end({
           schemes: eligibleResults.length,
-          provider: "openrouter",
-          model: MODEL,
-          usage:
-            (generation as { usage?: unknown; totalUsage?: unknown }).usage ??
-            (generation as { usage?: unknown; totalUsage?: unknown }).totalUsage,
+          provider: "featherless",
+          model: featherless.model,
         });
+      } else {
+        featherlessStatus = featherless.ok ? "incomplete_output" : featherless.errorCategory;
+        fallbackReason = featherless.error ?? "Featherless returned no usable explanation text.";
+        featherlessSpan.end({
+          schemes: eligibleResults.length,
+          provider: "featherless",
+          fallback: true,
+          errorCategory: featherlessStatus,
+          reason: fallbackReason,
+        });
+      }
+
+      if (!reportMarkdown) {
+        reasoningAttemptedProviders.push(gateway ? "openrouter-fallback" : "local-fallback");
+        const reportSpan = gateway
+          ? trace.generation("Report Agent fallback", {
+              provider: "openrouter",
+              model: MODEL,
+              eligibleCount: eligibleResults.length,
+            })
+          : trace.span("Report Agent local fallback", {
+              provider: "local-fallback",
+              eligibleCount: eligibleResults.length,
+            });
+
+        if (!gateway) {
+          reportMarkdown = generateLocalReport(profile, eligibleSchemes, eligibleResults);
+          reasoningProvider = "local-fallback";
+          fallbackReason =
+            fallbackReason ?? "OpenRouter is not configured; used local grounded report.";
+          reportSpan.end({ schemes: eligibleResults.length, provider: "local-fallback" });
+        } else {
+          try {
+            const generation = await generateText({
+              model: gateway(MODEL),
+              system:
+                "You are the Report Agent for SchemeSeva. Generate a plain-language markdown report for an Indian citizen about government schemes they may qualify for. " +
+                "Rules: (1) Always use the phrase 'likely eligible' and never claim guaranteed eligibility. " +
+                "(2) Use 8th-grade reading level, no bureaucratic jargon. " +
+                "(3) For each scheme use this exact structure: ### N. <Scheme Name> - <benefit>, then two-sentence 'Why you likely qualify', then a numbered 'Steps to apply' list, then a 'Documents needed' list, then a line 'Source: <url> - Last verified: <date>'. " +
+                "(4) Never invent schemes, benefits, documents, dates, source URLs, or application steps. Only use the data provided. " +
+                "(5) End with exactly one disclaimer paragraph: 'This is guidance based on the information you shared. Please confirm final eligibility on the official portal or with a local government office.'",
+              prompt: buildReportGenerationInput(profile, eligibleSchemes, eligibleResults),
+            });
+            reportMarkdown = generation.text;
+            if (isCompleteSchemeReport(reportMarkdown, eligibleSchemes)) {
+              reasoningProvider = "openrouter-fallback";
+            } else {
+              reportMarkdown = generateLocalReport(profile, eligibleSchemes, eligibleResults);
+              reasoningProvider = "local-fallback";
+              fallbackReason =
+                fallbackReason ?? "OpenRouter output was incomplete; used local grounded report.";
+            }
+            reportSpan.end({
+              schemes: eligibleResults.length,
+              provider: reasoningProvider,
+              model: MODEL,
+              usage:
+                (generation as { usage?: unknown; totalUsage?: unknown }).usage ??
+                (generation as { usage?: unknown; totalUsage?: unknown }).totalUsage,
+            });
+          } catch (e) {
+            reportMarkdown = generateLocalReport(profile, eligibleSchemes, eligibleResults);
+            reasoningProvider = "local-fallback";
+            fallbackReason =
+              fallbackReason ?? "OpenRouter fallback failed; used local grounded report.";
+            reportSpan.end({
+              schemes: eligibleResults.length,
+              provider: "local-fallback",
+              openRouterFallbackFailed: true,
+              error: (e as Error).message?.slice(0, 160),
+            });
+          }
+        }
       }
     }
 
-    // Safety Agent — prefers Enkrypt AI; falls back to Gemini validator
+    // Safety Agent - prefers Enkrypt AI; falls back to Gemini validator
     const sourceContext = JSON.stringify(
       eligibleSchemes.map((s) => ({
         id: s.id,
@@ -525,7 +607,7 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
         `${eligibleResults.length} likely matches after hard-fail exclusions.`,
       ),
       reportAgent: completed(
-        getGateway() ? "openrouter" : "local-demo",
+        reasoningProvider,
         eligibleResults.length ? "Plain-language report generated." : "No-match report generated.",
       ),
       safetyValidation:
@@ -543,10 +625,11 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
     const memoryResult = await rememberSession(
       data.sessionKey,
       profile,
-      `Retrieval=${retrieval.source} · Matches=${eligibleResults.length} · Safety=${safetyReport.provider}/${safetyReport.status}`,
+      `Retrieval=${retrieval.source} · Reasoning=${reasoningProvider} · Matches=${eligibleResults.length} · Safety=${safetyReport.provider}/${safetyReport.status}`,
       eligibleResults,
       retrieval.source,
       safetyReport.provider,
+      reasoningProvider,
     );
     memorySpan.end({
       memoryProvider: memoryResult.provider,
@@ -582,7 +665,7 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
       }
     }
 
-    const result: DiscoveryReport = {
+    const result = {
       sessionKey: data.sessionKey,
       profile,
       eligible: eligibleResults,
@@ -590,15 +673,24 @@ Documents needed: ${s.documentsRequired.join(", ")}`;
       reportMarkdown,
       safety,
       retrievalProvider: retrieval.source,
+      reasoningProvider,
+      reasoningAttemptedProviders,
+      featherlessStatus,
+      fallbackReason,
+      featherlessErrorCategory: featherlessStatus,
       retrievalDiagnostics: retrieval.diagnostics,
       memoryProvider: memoryResult.provider === "qdrant" ? "qdrant" : "local",
       memoryWrite: memoryResult.memoryWrite,
       workflowMode: "adapter",
       agentSteps,
-    };
+    } satisfies DiscoveryReport & ReasoningMetadata;
     await trace.end({
       matches: eligibleResults.length,
       retrieval: retrieval.source,
+      reasoningProvider,
+      reasoningAttemptedProviders,
+      featherlessStatus,
+      reasoningFallbackReason: fallbackReason,
       ...retrieval.diagnostics,
       safetyProvider: safetyReport.provider,
       memoryProvider: memoryResult.provider,
@@ -629,6 +721,7 @@ export const runVigilance = createServerFn({ method: "POST" })
         schemeName: string;
         reason: string;
         urgency: string;
+        reasoningProvider: ReasoningProvider;
         safetyProvider: string;
         validationProvider: string;
         retrievalProvider: string;
@@ -763,6 +856,7 @@ export const runVigilance = createServerFn({ method: "POST" })
         schemeName: string;
         reason: string;
         urgency: string;
+        reasoningProvider: ReasoningProvider;
         safetyProvider: string;
         validationProvider: string;
         retrievalProvider: string;
@@ -790,7 +884,67 @@ export const runVigilance = createServerFn({ method: "POST" })
       for (const scheme of candidates.slice(0, 5)) {
         const r = checkEligibility(scheme, profile);
         if (r.confidence === "high" || r.confidence === "medium") {
-          const alertReason = r.reasons[0] ?? "Matches your saved profile.";
+          let alertReason = r.reasons[0] ?? "Matches your saved profile.";
+          let alertReasoningProvider: ReasoningProvider = "local-fallback";
+          const alertReasoningSpan = trace.generation("Alert reasoning", {
+            schemeId: scheme.id,
+            primaryProvider: "featherless",
+            fallbackProvider: process.env.OPENROUTER_API_KEY
+              ? "openrouter"
+              : "local-fallback",
+          });
+          const featherlessReason = await generateVigilanceReasonWithFeatherless({
+            profile,
+            scheme,
+            eligibility: r,
+          });
+          if (featherlessReason.ok && featherlessReason.text.length >= 12) {
+            alertReason = featherlessReason.text;
+            alertReasoningProvider = "featherless";
+            alertReasoningSpan.end({
+              provider: "featherless",
+              model: featherlessReason.model,
+            });
+          } else {
+            const gateway = getGateway();
+            if (gateway) {
+              try {
+                const generation = await generateText({
+                  model: gateway(MODEL),
+                  system:
+                    "You write short SchemeSeva Vigilance alert reasons. Use only the provided profile, scheme, and eligibility facts. Use likely-match language, never guarantee eligibility, do not invent benefits, and do not ask for Aadhaar number or bank account number. Return one sentence under 35 words.",
+                  prompt: `Citizen profile: ${JSON.stringify(profile)}
+Scheme: ${scheme.schemeName}
+Benefit: ${scheme.benefitAmount}
+Eligibility reasons: ${r.reasons.join(" ")}
+Source: ${scheme.sourceUrl}
+Last verified: ${scheme.lastVerified}
+
+Write the alert reason.`,
+                });
+                if (generation.text.trim().length >= 12) {
+                  alertReason = generation.text.trim();
+                  alertReasoningProvider = "openrouter-fallback";
+                }
+                alertReasoningSpan.end({
+                  provider: alertReasoningProvider,
+                  featherlessFallbackReason: featherlessReason.error,
+                });
+              } catch (e) {
+                alertReasoningSpan.end({
+                  provider: "local-fallback",
+                  featherlessFallbackReason: featherlessReason.error,
+                  openRouterFallbackFailed: true,
+                  error: (e as Error).message?.slice(0, 160),
+                });
+              }
+            } else {
+              alertReasoningSpan.end({
+                provider: "local-fallback",
+                featherlessFallbackReason: featherlessReason.error,
+              });
+            }
+          }
           const alertValidationSpan = trace.span("Alert validation", {
             schemeId: scheme.id,
             confidence: r.confidence,
@@ -847,6 +1001,7 @@ export const runVigilance = createServerFn({ method: "POST" })
             schemeName: scheme.schemeName,
             reason: alertReason,
             urgency: r.confidence === "high" ? "high" : "medium",
+            reasoningProvider: alertReasoningProvider,
             safetyProvider: safety.provider,
             validationProvider: safety.provider,
             retrievalProvider: "saved-session+scheme-catalog",
