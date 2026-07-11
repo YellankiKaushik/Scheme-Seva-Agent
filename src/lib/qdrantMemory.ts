@@ -154,6 +154,7 @@ export async function rememberSession(
   foundSchemes: EligibilityResult[] = [],
   retrievalProvider?: string,
   safetyProvider?: string,
+  reasoningProvider?: string,
 ): Promise<SessionMemoryResult> {
   devLog("rememberSession called", {
     collection: SESSIONS_COLLECTION,
@@ -199,6 +200,8 @@ export async function rememberSession(
       retrieval_provider: retrievalProvider,
       safetyProvider,
       safety_provider: safetyProvider,
+      reasoningProvider,
+      reasoning_provider: reasoningProvider,
       timestamp,
       lastScanTimestamp: timestamp,
       updated_at: timestamp,
@@ -237,6 +240,7 @@ export async function rememberAlert(alert: {
   schemeName: string;
   reason: string;
   urgency: string;
+  reasoningProvider?: string;
   safetyProvider: string;
   retrievalProvider: string;
 }) {
@@ -255,6 +259,8 @@ export async function rememberAlert(alert: {
       scheme_name: alert.schemeName,
       reason: alert.reason,
       urgency: alert.urgency,
+      reasoningProvider: alert.reasoningProvider,
+      reasoning_provider: alert.reasoningProvider,
       safetyProvider: alert.safetyProvider,
       safety_provider: alert.safetyProvider,
       retrievalProvider: alert.retrievalProvider,
