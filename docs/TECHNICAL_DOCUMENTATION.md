@@ -18,7 +18,7 @@
 
 ## 2. Executive Summary
 
-SchemeSeva is a TypeScript-native civic AI agent that helps Indian citizens discover government schemes they may likely qualify for. The system combines guided profile intake, a verified Central + Telangana scheme catalog, Qdrant retrieval and memory, Enkrypt AI validation, OpenRouter reasoning, Gemini embeddings, Langfuse observability, Upstash Redis rate limiting, and a deployed Vercel application.
+SchemeSeva is a TypeScript-native civic AI agent that helps Indian citizens discover government schemes they may likely qualify for. The system combines guided profile intake, a verified Central + Telangana scheme catalog, Qdrant retrieval and memory, Featherless AI as the primary open-source reasoning provider, OpenRouter fallback reasoning, Enkrypt AI validation, Gemini embeddings, Langfuse observability, Upstash Redis rate limiting, and a deployed Vercel application.
 
 The current implementation is designed for an honest hackathon demo. It includes 28 verified schemes, five demo personas, a source-grounded Farmer report flow, and a Vigilance Agent that can surface a PM-KUSUM alert after a saved session is scanned. The output is explicitly guidance only. The app does not claim an official government decision, does not collect Aadhaar numbers, does not collect bank account numbers, and does not submit applications automatically.
 
@@ -74,7 +74,7 @@ From a technical perspective, SchemeSeva is a multi-step agent workflow:
 1. Normalize citizen profile details.
 2. Retrieve candidate schemes from Qdrant or fallback catalog.
 3. Apply deterministic eligibility checks.
-4. Generate a plain-language report.
+4. Generate a plain-language report with Featherless AI, OpenRouter fallback, or local grounded fallback.
 5. Validate the report with Enkrypt AI or a visible fallback.
 6. Save session memory.
 7. Run a Vigilance scan to find unseen matches.
@@ -89,6 +89,7 @@ The current implementation includes:
 - Five demo personas: Farmer, Student, Woman entrepreneur, Elderly pensioner, and Unemployed youth.
 - Source-grounded reports with `sourceUrl` and `lastVerified`.
 - Deterministic likely eligibility checks.
+- Featherless AI reasoning for report explanations and Vigilance alert reasons.
 - Qdrant scheme retrieval and session memory.
 - Qdrant pending alert storage when configured.
 - Enkrypt validation for reports and alerts when configured.
@@ -120,7 +121,8 @@ React routes
   -> TanStack Start server functions
   -> Qdrant retrieval / memory
   -> deterministic eligibility
-  -> OpenRouter report generation
+  -> Featherless AI report reasoning
+  -> OpenRouter / local fallback if needed
   -> Enkrypt validation
   -> Langfuse tracing
   -> Upstash rate limiting
@@ -139,7 +141,8 @@ flowchart TD
   Discovery --> LocalCatalog["Local catalog fallback"]
   Workflow --> Eligibility["Eligibility Agent"]
   Workflow --> Report["Report Agent"]
-  Report --> OpenRouter["OpenRouter reasoning"]
+  Report --> Featherless["Featherless AI reasoning"]
+  Report --> OpenRouter["OpenRouter fallback"]
   Report --> EnkryptReport["Enkrypt report validation"]
   Workflow --> Memory["Qdrant citizen_sessions"]
   Agent --> Vigilance["Vigilance Agent"]
@@ -169,7 +172,7 @@ Implemented in `src/routes/architecture.tsx`. It explains the five-agent archite
 
 ### Integration Diagnostics
 
-Implemented in `src/routes/debug.integrations.tsx` and `src/lib/integrations-status.functions.ts`. It performs sanitized status checks for Mastra adapter mode, Qdrant, Enkrypt AI, OpenRouter, Gemini, Langfuse, Upstash, demo mode, retrieval provider, safety provider, memory provider, and optional Supabase fallback.
+Implemented in `src/routes/debug.integrations.tsx` and `src/lib/integrations-status.functions.ts`. It performs sanitized status checks for Mastra adapter mode, Qdrant, Featherless AI, Enkrypt AI, OpenRouter, Gemini, Langfuse, Upstash, demo mode, retrieval provider, reasoning provider, safety provider, memory provider, and optional Supabase fallback.
 
 ### Profile Agent
 
@@ -185,11 +188,11 @@ Implemented in `src/mastra/agents/eligibilityAgent.ts` and `src/lib/schemeseva-e
 
 ### Report Agent
 
-Implemented in `src/mastra/agents/reportAgent.ts` and `runDiscovery`. It generates or falls back to a source-grounded markdown report and then validates it.
+Implemented in `src/mastra/agents/reportAgent.ts`, `src/lib/featherless.ts`, and `runDiscovery`. It asks Featherless AI to generate the source-grounded markdown report first. If Featherless is disabled, missing credentials/model, times out, or returns an incomplete report, the flow falls back to OpenRouter and then the existing local grounded report. Enkrypt validation runs after the final report is selected.
 
 ### Vigilance Agent
 
-Implemented in `src/mastra/agents/vigilanceAgent.ts` and `runVigilance`. It loads a saved session, scans unseen schemes, validates any alert, writes alert memory where possible, and returns diagnostics.
+Implemented in `src/mastra/agents/vigilanceAgent.ts`, `src/lib/featherless.ts`, and `runVigilance`. It loads a saved session, scans unseen schemes, asks Featherless AI to write the short alert reason, falls back to OpenRouter/local text if needed, validates the alert with Enkrypt, writes alert memory where possible, and returns diagnostics.
 
 ### Qdrant Integration
 
@@ -268,6 +271,45 @@ Session memory stores safe profile details, found schemes, provider metadata, su
 
 Profile memory may include demographic and eligibility signals, so it is treated carefully. Observability sanitizes profile data, session identifiers are shortened in traces, and the demo avoids collecting Aadhaar or bank account numbers.
 
+## Featherless AI Reasoning Design
+
+Featherless AI is the primary open-source reasoning provider for generated civic explanations. The implementation is in `src/lib/featherless.ts` and uses the OpenAI-compatible chat completions API:
+
+- Base URL: `https://api.featherless.ai/v1`
+- Chat endpoint: `/v1/chat/completions`
+- Request path used by the app: `${FEATHERLESS_BASE_URL}/chat/completions`
+- Temperature: `0.2`
+- Health timeout: `8000ms`
+- Report and alert timeout: `15000ms`
+
+Environment variables are placeholders only and must be set outside the repository:
+
+```bash
+FEATHERLESS_API_KEY=
+FEATHERLESS_BASE_URL=https://api.featherless.ai/v1
+FEATHERLESS_MODEL=
+FEATHERLESS_ENABLED=true
+```
+
+If `FEATHERLESS_ENABLED` is not `true`, or the API key/model is missing, the provider reports `configured=false` and the caller continues to fallback logic. Errors are sanitized so API keys are never logged or returned to the UI.
+
+### Report Generation Role
+
+During discovery, Qdrant retrieves candidate schemes and deterministic rules identify likely matches. Featherless then writes the source-grounded report explanation using only the profile, eligibility reasons, documents, next steps, `sourceUrl`, and `lastVerified` values supplied by the app. If Featherless fails, the report flow uses OpenRouter. If OpenRouter fails or returns an incomplete report, SchemeSeva uses the existing local grounded report generator.
+
+### Vigilance Alert Reasoning Role
+
+During a Vigilance scan, saved-session context and the scheme catalog identify a likely unseen match. Featherless writes a short alert reason. If Featherless fails, OpenRouter/local fallback writes the reason. Enkrypt validates the final alert text before display, and Qdrant `pending_alerts` stores the validated alert when configured.
+
+### Fallback And Safety Order
+
+The reasoning order is:
+
+1. Featherless AI.
+2. OpenRouter fallback.
+3. Local grounded fallback.
+4. Enkrypt validation after the final text is selected.
+
 ## 14. Enkrypt AI Safety Design
 
 Enkrypt AI is the primary safety layer for citizen-facing text.
@@ -345,6 +387,7 @@ interface DiscoveryReport {
   reportMarkdown: string;
   safety: { status: "safe" | "warning"; note: string; provider: string };
   retrievalProvider: string;
+  reasoningProvider?: "featherless" | "openrouter-fallback" | "local-fallback";
   memoryProvider?: "qdrant" | "local" | "optional-supabase" | "unavailable";
   memoryWrite?: "success" | "failed" | "skipped-local";
   workflowMode?: "adapter" | "runtime" | "fallback";
@@ -368,6 +411,7 @@ interface DiscoveryReport {
     { schemeId: "pm-kisan-001", confidence: "high" }
   ],
   retrievalProvider: "qdrant-vector",
+  reasoningProvider: "featherless",
   safetyProvider: "enkrypt",
   updated_at: "2026-07-10T00:00:00.000Z"
 }
@@ -383,6 +427,7 @@ interface DiscoveryReport {
   schemeName: "PM-KUSUM",
   reason: "Matches your saved profile.",
   urgency: "high",
+  reasoningProvider: "featherless",
   safetyProvider: "enkrypt",
   retrievalProvider: "saved-session+scheme-catalog"
 }
@@ -458,8 +503,9 @@ The app is deployed to Vercel at https://scheme-seva-agent.vercel.app/.
 External services are configured through Vercel environment variables:
 
 - Qdrant for retrieval and memory.
+- Featherless AI for primary open-source reasoning.
 - Enkrypt AI for safety validation.
-- OpenRouter for reasoning.
+- OpenRouter for fallback reasoning.
 - Gemini for embeddings.
 - Langfuse for observability.
 - Upstash Redis for rate limiting.
@@ -477,7 +523,7 @@ pnpm audit
 pnpm run lint
 ```
 
-`scripts/smoke-local.ts` validates the five demo persona paths against the local catalog and checks that key routes load when a local server is available. Manual live testing should verify the Farmer demo report, Qdrant retrieval/memory badges, Enkrypt safety badge, and Vigilance PM-KUSUM alert.
+`scripts/smoke-local.ts` validates the five demo persona paths against the local catalog and checks that key routes load when a local server is available. Manual live testing should verify the Farmer demo report, Qdrant retrieval/memory badges, Featherless reasoning badge when configured, Enkrypt safety badge, and Vigilance PM-KUSUM alert.
 
 ## 22. User Demo Walkthrough
 
@@ -487,10 +533,10 @@ pnpm run lint
 4. Open `/app`.
 5. Select the Farmer demo profile.
 6. Run discovery.
-7. Check the report badges and source-grounded output.
+7. Check the report badges and source-grounded output, including `Reasoning: featherless` when configured.
 8. Confirm `sourceUrl` and `lastVerified` appear.
 9. Run the Vigilance scan.
-10. Confirm the PM-KUSUM alert appears with safety validation when Enkrypt is active.
+10. Confirm the PM-KUSUM alert appears with Featherless reasoning and safety validation when live providers are active.
 
 ## 23. Challenges And Solutions
 
