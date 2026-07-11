@@ -13,7 +13,7 @@ export const Route = createFileRoute("/debug/integrations")({
       {
         name: "description",
         content:
-          "Live status of the SchemeSeva stack: Mastra adapter, OpenRouter, Gemini embeddings, Qdrant, Enkrypt AI, Langfuse, Upstash, and optional Supabase fallback.",
+          "Live status of the SchemeSeva stack: Mastra adapter, Featherless AI, OpenRouter, Gemini embeddings, Qdrant, Enkrypt AI, Langfuse, Upstash, and optional Supabase fallback.",
       },
     ],
   }),
@@ -79,8 +79,8 @@ function IntegrationsPage() {
               </p>
               <p className="mt-3 max-w-3xl text-xs font-semibold uppercase tracking-wide text-primary">
                 Judge proof: verify Mastra workflow mode, Qdrant retrieval and memory, Enkrypt
-                validation, OpenRouter reasoning, Gemini embeddings, Langfuse tracing, Upstash rate
-                limiting, and optional Supabase fallback.
+                validation, Featherless AI reasoning, OpenRouter fallback, Gemini embeddings,
+                Langfuse tracing, Upstash rate limiting, and optional Supabase fallback.
               </p>
             </div>
             <button
@@ -130,7 +130,8 @@ function IntegrationsPage() {
             >
               <p className="text-sm text-muted-foreground">
                 Retrieval provider: <code>{data.currentRetrievalProvider}</code> | Safety provider:{" "}
-                <code>{data.currentSafetyProvider}</code> | Memory provider:{" "}
+                <code>{data.currentSafetyProvider}</code> | Reasoning provider:{" "}
+                <code>{data.currentReasoningProvider}</code> | Memory provider:{" "}
                 <code>{data.memoryProvider}</code>
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
@@ -255,6 +256,52 @@ function IntegrationsPage() {
             </Card>
 
             <Card
+              title="Featherless AI reasoning"
+              primary={data.featherless.primary}
+              badges={[
+                <Pill
+                  key="e"
+                  ok={data.featherless.enabled}
+                  label={data.featherless.enabled ? "enabled" : "disabled"}
+                />,
+                <Pill
+                  key="k"
+                  ok={data.featherless.credentialsSet}
+                  label={data.featherless.credentialsSet ? "credentials set" : "credentials missing"}
+                />,
+                <Pill
+                  key="m"
+                  ok={data.featherless.modelConfigured}
+                  label={data.featherless.modelConfigured ? "model configured" : "model missing"}
+                />,
+                <Pill
+                  key="c"
+                  ok={data.featherless.connected === true}
+                  label={
+                    data.featherless.connected === true
+                      ? "connected"
+                      : data.featherless.status === "timeout"
+                        ? "timeout"
+                        : data.featherless.configured
+                          ? "unreachable"
+                          : "not configured"
+                  }
+                />,
+              ]}
+            >
+              <p className="text-sm text-muted-foreground">
+                Base URL host: <code>{data.featherless.baseUrl}</code> | Model:{" "}
+                <code>{data.featherless.model ?? "missing"}</code>
+              </p>
+              {data.featherless.error ? (
+                <p className="mt-1 text-xs text-primary">Status: {data.featherless.error}</p>
+              ) : null}
+              <p className="mt-2 text-xs text-muted-foreground">
+                Fallback: {data.featherless.fallback}
+              </p>
+            </Card>
+
+            <Card
               title="OpenRouter reasoning"
               primary={data.openrouter.configured}
               badges={[
@@ -271,8 +318,9 @@ function IntegrationsPage() {
               ]}
             >
               <p className="text-sm text-muted-foreground">
-                Reasoning model: <code>{data.openrouter.model ?? "not set"}</code>. Profile and
-                report agents use local grounded fallbacks when OpenRouter is missing.
+                Fallback model: <code>{data.openrouter.model ?? "not set"}</code>. Profile
+                extraction can use OpenRouter, and report/Vigilance reasoning uses OpenRouter if
+                Featherless is unavailable.
               </p>
             </Card>
 
